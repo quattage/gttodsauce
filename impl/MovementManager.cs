@@ -1,4 +1,5 @@
 
+using System;
 using EZCameraShake;
 using UnityEngine;
 using UnityEngine.AI;
@@ -44,23 +45,15 @@ public class MovementManager(GTTODUF mod, ac_CharacterController controller) {
     public void Apply() {
         _cameraZ = new(Controller.CameraParent.localPosition.y, Controller.CameraParent.localPosition.y - 1f, 1);
         GameObject playerObjects = Controller.transform.parent.gameObject;
-        Transform fuckYou = playerObjects?.transform.Find("WallrunObjects");
-        fuckYou?.gameObject.SetActive(false);
-        Controller.DashCount = (int)GameManager.GM.StoredVariables.PlayerManager.FindModifier("AGILITY", "THRUSTER COIL").GetCurrentModifier();
-        Controller.CameraManager.ActivateCameras(Controller.transform);
+        Transform fuckOffAndDie = playerObjects?.transform.Find("WallrunObjects");
+        fuckOffAndDie?.gameObject.SetActive(false);
         Controller.CameraParent = Controller.CameraAnimation.transform;
-        Controller.PlayerPhysics = Controller.GetComponent<Rigidbody>();
-        Controller.Obstacle = Controller.GetComponent<NavMeshObstacle>();
-        Controller.PlayerCollider = Controller.GetComponent<CapsuleCollider>();
-        UnityEngine.Cursor.visible = false;
-        UnityEngine.Cursor.lockState = CursorLockMode.Locked;
-        Controller.Active = true;
     }
 
     public void Revert() {
         GameObject playerObjects = Controller.transform.parent.gameObject;
-        Transform fuckYou = playerObjects?.transform.Find("WallrunObjects");
-        fuckYou?.gameObject.SetActive(true);
+        Transform eatShit = playerObjects?.transform.Find("WallrunObjects");
+        eatShit?.gameObject.SetActive(true);
         Controller = null;
         _mod = null;
     }
@@ -80,6 +73,7 @@ public class MovementManager(GTTODUF mod, ac_CharacterController controller) {
     }
 
     public void Update() {
+        if(!_mod.enabled) return;
         TryReset();
         // dubious controller support since wishdir is normalized
         _wishdir = new Vector3(-GetLeftRight(), 0, GetForwardBack()).normalized;
@@ -100,6 +94,7 @@ public class MovementManager(GTTODUF mod, ac_CharacterController controller) {
     }
 
     public void FixedUpdate() {
+        if(!_mod.enabled) return;
         /**
             By ingesting the velocity from the previous rigidbody update, we can basically just pretend 
             that we're doing the kinematic collisions since the velocity is being altered by the rigidbody
@@ -119,7 +114,7 @@ public class MovementManager(GTTODUF mod, ac_CharacterController controller) {
         if(Jumping) Jumping.TickUp();
         else Jumping.ResetTicks();
         RB.velocity = _velocity;
-        DebugAll();
+        // DebugAll();
     }
 
     /// <summary>
@@ -134,7 +129,7 @@ public class MovementManager(GTTODUF mod, ac_CharacterController controller) {
     private void InspectGround() {
         if(!Grounded && YSpeed > 0.1f) return;
         bool hit = Physics.BoxCast(CenterMass, FloorExtents, Vector3.down, out Controller.GroundCheck, Quaternion.identity, FloorCastDistance);
-        float distance = (Vector3.Distance(CenterMass, BottomSurface)) * 0.90f;
+        float distance = Mathf.Abs(RB.position.y - BottomSurface.y) * 0.90f;
         if(!hit || Controller.GroundCheck.distance > distance || Vector3.Angle(Vector3.up, Controller.GroundCheck.normal) > _slopeAngle) {
             Grounded.SetDoing(false);
             return;
@@ -149,7 +144,7 @@ public class MovementManager(GTTODUF mod, ac_CharacterController controller) {
         // contact is not likely to be perfectly aligned directly underneath the player
         Vector3 projected = Vector3.Dot(diff, Vector3.down) * Vector3.down;
         float fraction = Controller.GroundCheck.distance / FloorCastDistance;
-        if((fraction > 0f && fraction < 1f)) RB.position += projected;
+        if((fraction > 0f && fraction < 1f)) RB.position += (projected - Controller.PlayerCollider.center);
         RB.velocity = new(RB.velocity.x, 0, RB.velocity.z);
         _velocity.y = 0;
     }
@@ -230,7 +225,7 @@ public class MovementManager(GTTODUF mod, ac_CharacterController controller) {
         if(RB.velocity.y > 0.25f) {
             Sliding.TickUp(15);
             ApplyFrictionXZ(Sliding.StateTicks * 0.5f);
-        } else if(YSpeed < -0.25) {
+        } else if(RB.velocity.y < -0.25) {
             Sliding.TickDown(Sliding.StateTicks - 15);
             ApplyFrictionXZ(0.01f);
         } else ApplyFrictionXZ(1f);
@@ -267,7 +262,7 @@ public class MovementManager(GTTODUF mod, ac_CharacterController controller) {
                 float mag = _velocity.magnitude;
                 _velocity = _wishdirRotated * mag;
                 if(XZSpeed < 60) _velocity += (_velocity.normalized * 8f);
-            }
+            } else _velocity = new Vector3(0, 0, 0);
             RefundGroundedState();
             Controller.CurrentDashCount--;
             PlayDashEffects();
@@ -382,12 +377,12 @@ public class MovementManager(GTTODUF mod, ac_CharacterController controller) {
     }
 
     private void ResizeCollider(float newHeight) {
-        // Vector3 center = Controller.PlayerCollider.center;
-        // float prevHeight = Controller.PlayerCollider.height;
-        // float delta = newHeight - prevHeight;
-        // center.y += delta * 0.5f;
-        // Controller.PlayerCollider.center = center;
-        // Controller.PlayerCollider.height = newHeight;
+        Vector3 center = Controller.PlayerCollider.center;
+        float prevHeight = Controller.PlayerCollider.height;
+        float delta = newHeight - prevHeight;
+        center.y += delta * 0.5f;
+        Controller.PlayerCollider.center = center;
+        Controller.PlayerCollider.height = newHeight;
     }
 
     private void VerySmallMovementShake() {

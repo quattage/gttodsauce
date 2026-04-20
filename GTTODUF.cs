@@ -1,6 +1,7 @@
 ﻿using BepInEx;
 using gttoduf.impl;
 using HarmonyLib;
+using UnityEngine;
 
 namespace gttoduf;
 
@@ -72,12 +73,10 @@ public class GTTODUF : BaseUnityPlugin {
     [HarmonyPatch(typeof(ac_CharacterController), "FixedUpdate"), HarmonyPrefix]
     public static bool gttoduf_FixedUpdatePatch(ac_CharacterController __instance) {
         _modSingleton.CreateManager(__instance).FixedUpdate();
-        return false;
-    }
-
-    [HarmonyPatch(typeof(ac_CharacterController), "ActivateCharacter"), HarmonyPrefix]
-    public static bool gttoduf_ActivateCharacterPatch(ac_CharacterController __instance) {
-        _modSingleton?._manager?.Apply();
+        if(Input.GetKeyDown(KeyCode.F4)) {
+            _modSingleton.enabled = !_modSingleton.enabled;
+            GameManager.GM.GetComponent<GTTOD_HUD>().BigTextPopUp($"{(_modSingleton.enabled ? "Unfucked" : "Re-fucked")} GTTOD", 0);
+        }
         return false;
     }
 }

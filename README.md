@@ -20,4 +20,3 @@ my own discrete kinematic controller.
 - Reworks wallrunning to be significantly more predictable
 - Fixes lots of jitter issues caused by rigidbody/velocity fighting
 - Re-implements gamefeel stuff to be easier on the eyes (less camera/weapon sway overall)
-
