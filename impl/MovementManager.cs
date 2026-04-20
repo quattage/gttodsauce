@@ -3,6 +3,8 @@ using System;
 using EZCameraShake;
 using UnityEngine;
 using UnityEngine.AI;
+using UnityEngine.TextCore.Text;
+using UnityEngine.UIElements;
 using static ac_CharacterController;
 
 namespace gttoduf.impl;
@@ -25,7 +27,8 @@ public class MovementManager(GTTODUF mod, ac_CharacterController controller) {
 
     public Rigidbody RB => Controller.PlayerPhysics;
     public Vector3 CenterMass => Controller.PlayerCollider.transform.position + Controller.PlayerCollider.center;
-    public Vector3 BottomSurface => Controller.PlayerCollider.transform.position + new Vector3(0, -Controller.PlayerCollider.height / 1.9f, 0);
+    public Vector3 BottomSurface => CenterMass + new Vector3(0, -Controller.PlayerCollider.height / 1.9f, 0);
+    public Vector3 TopSurface => CenterMass + new Vector3(0, Controller.PlayerCollider.height / 2f, 0);
     public Vector3 FloorExtents => new(Controller.PlayerCollider.radius, Controller.PlayerCollider.radius, Controller.PlayerCollider.radius);
     public Vector3 BodyExtents => new(Controller.PlayerCollider.radius, Controller.PlayerCollider.height / 2f, Controller.PlayerCollider.radius);
     public float FloorCastDistance => Controller.PlayerCollider.height / 2f;
@@ -35,6 +38,10 @@ public class MovementManager(GTTODUF mod, ac_CharacterController controller) {
     public Intention Sliding = new();
     public Intention Crouching = new();
     public Intention Dashing = new();
+    public Intention Wallrunning = new();
+
+    public bool IsWallrunningLeft => Wallrunning.Doing && Wallrunning.StateTicks < 0;
+    public bool ISWallrunningRight => Wallrunning.Doing && Wallrunning.StateTicks > 0;
 
     public float Speed => _velocity.magnitude;
     public float XZSpeed => new Vector2(_velocity.x, _velocity.z).magnitude;
@@ -73,7 +80,7 @@ public class MovementManager(GTTODUF mod, ac_CharacterController controller) {
     }
 
     public void Update() {
-        if(!_mod.enabled) return;
+        if(!_mod.enabled || Controller == null || !Controller.Active || Controller.PlayerManager.PlayerEngaged) return;
         TryReset();
         // dubious controller support since wishdir is normalized
         _wishdir = new Vector3(-GetLeftRight(), 0, GetForwardBack()).normalized;
@@ -94,7 +101,7 @@ public class MovementManager(GTTODUF mod, ac_CharacterController controller) {
     }
 
     public void FixedUpdate() {
-        if(!_mod.enabled) return;
+        if(!_mod.enabled || Controller == null || !Controller.Active) return;
         /**
             By ingesting the velocity from the previous rigidbody update, we can basically just pretend 
             that we're doing the kinematic collisions since the velocity is being altered by the rigidbody
@@ -129,12 +136,12 @@ public class MovementManager(GTTODUF mod, ac_CharacterController controller) {
     private void InspectGround() {
         if(!Grounded && YSpeed > 0.1f) return;
         bool hit = Physics.BoxCast(CenterMass, FloorExtents, Vector3.down, out Controller.GroundCheck, Quaternion.identity, FloorCastDistance);
-        float distance = Mathf.Abs(RB.position.y - BottomSurface.y) * 0.90f;
+        float distance = Mathf.Abs(RB.position.y - BottomSurface.y);
         if(!hit || Controller.GroundCheck.distance > distance || Vector3.Angle(Vector3.up, Controller.GroundCheck.normal) > _slopeAngle) {
             Grounded.SetDoing(false);
             return;
         }
-        if(!Grounded) OnHitGround();
+        if(!Grounded && Grounded.StateTicks < -50) OnHitGround();
         Grounded.SetDoing(true);
         if(Jumping.IsExpected()) return;
         if(Grounded.StateTicks > -100 && Grounded.StateTicks < 0) return;
@@ -144,11 +151,16 @@ public class MovementManager(GTTODUF mod, ac_CharacterController controller) {
         // contact is not likely to be perfectly aligned directly underneath the player
         Vector3 projected = Vector3.Dot(diff, Vector3.down) * Vector3.down;
         float fraction = Controller.GroundCheck.distance / FloorCastDistance;
-        if((fraction > 0f && fraction < 1f)) RB.position += (projected - Controller.PlayerCollider.center);
+        if((fraction > 0f && fraction < 1f)) RB.position += projected;
         RB.velocity = new(RB.velocity.x, 0, RB.velocity.z);
         _velocity.y = 0;
     }
 
+    /// <summary>
+    /// While the player is touching the ground, they're able to slide, but not wallrun.
+    /// Grounded movement receives much more friction and allows the player to accelerate
+    /// faster so that it feels more controllable than moving in the air.
+    /// </summary>
     private void MoveOnGround() {
         HasAirjump = true;
         Jumping.SetDoing(false);
@@ -167,11 +179,11 @@ public class MovementManager(GTTODUF mod, ac_CharacterController controller) {
         }
         if(Crouching.IsTryingButNotDoing()) {
             Crouching.SetDoing();
-            ResizeCollider(Controller.BodyVariables.ColliderHeight / 3f * Controller.BodyVariables.SizeModifier);
+            ResizeCollider(Controller.BodyVariables.ColliderHeight / 2.4f * Controller.BodyVariables.SizeModifier);
             Controller.CameraAnimation.SetTrigger("Crouch");
             Controller.PlayGlobalSoundEffect(3);
             Controller.PlayerBody.Recoil(new Vector3(-0.1f, 0.1f, 0f), Vector3.zero, 3f, 8f);
-        } else if(Crouching.IsDoingButNotTrying()) {
+        } else if(Crouching.IsDoingButNotTrying() && HasHeadroom()) {
             JumpMovementShake(7f, 0.4f);
             Crouching.SetDoing(false);
             ResizeCollider(Controller.BodyVariables.ColliderHeight * Controller.BodyVariables.SizeModifier);
@@ -189,7 +201,13 @@ public class MovementManager(GTTODUF mod, ac_CharacterController controller) {
         ApplyFrictionXZ(14f);
     }
 
+    /// <summary>
+    /// All of the implementation for ingesting movement and adjusting velocity
+    /// while the character isn't touching the ground. Acceleration and friction
+    /// are greatly reduced here so that the player can drift around.
+    /// </summary>
     private void MoveInAir() {
+        if(EvaluateWallrun()) return;
         Jumping.SetDoing(false);
         Sliding.ResetTicks();
         if(Grounded.StateTicks > 0)
@@ -206,8 +224,8 @@ public class MovementManager(GTTODUF mod, ac_CharacterController controller) {
         }
         if(Crouching.IsTryingButNotDoing()) {
             Crouching.SetDoing();
-            ResizeCollider(Controller.BodyVariables.ColliderHeight / 3f * Controller.BodyVariables.SizeModifier);
-        } else if(Crouching.IsDoingButNotTrying()) {
+            ResizeCollider(Controller.BodyVariables.ColliderHeight / 2.4f * Controller.BodyVariables.SizeModifier);
+        } else if(Crouching.IsDoingButNotTrying() && HasHeadroom()) {
             Crouching.SetDoing(false);
             ResizeCollider(Controller.BodyVariables.ColliderHeight * Controller.BodyVariables.SizeModifier);
         }
@@ -218,6 +236,13 @@ public class MovementManager(GTTODUF mod, ac_CharacterController controller) {
         ApplyGravity(40);
     }
 
+    /// <summary>
+    /// Significantly reduces friction and acceleration so that the player's
+    /// velocity is less controllable. Slopes will accelerate the player as a
+    /// natural consequence of experiencing much less friction. Once the player
+    /// crosses the minimum speed threshold, sliding is automatically disabled
+    /// and the player is allowed to transition smoothly to a crouching state.
+    /// </summary>
     private void EvaluateSliding() {
         if(Sliding.StateTicks <= 0) OnSlideEnter();
         Sliding.TickUp();
@@ -239,6 +264,12 @@ public class MovementManager(GTTODUF mod, ac_CharacterController controller) {
         }
     }
 
+    /// <summary>
+    /// Dashes occur by casting the character's bounding box forward to ensure
+    /// that the player can't dash through walls. Once a dash is triggered and a 
+    /// dash destination is determined, the player is moved along a horizontal path
+    /// and their velocity is adjusted to point in the dash direction.
+    /// </summary>
     private bool EvaluateDashing() {
         if(Dashing.IsTryingButNotDoing()) {
             if(Grounded.StateTicks > -15 || Controller.CurrentDashCount <= 0) {
@@ -282,6 +313,12 @@ public class MovementManager(GTTODUF mod, ac_CharacterController controller) {
         return true;
     }
 
+
+    private bool EvaluateWallrun() {
+
+        return false;
+    }
+
     /// <summary>
     /// Callable by other movement objects (like people cannons, monkey bars, poles, dash points, etc)
     /// to reset airjumps, dashes, and sliding frames.
@@ -293,8 +330,15 @@ public class MovementManager(GTTODUF mod, ac_CharacterController controller) {
     }
 
     /// <summary>
-    /// Assigns the wishdir to the forward direction only if
-    /// the wishdir is zero. This is useful for movement mechanics
+    /// Returns true if the character has enough room to stand above their head while crouching.
+    /// </summary>
+    private bool HasHeadroom() {
+        return !Physics.CheckBox(Controller.transform.position + new Vector3(0, Controller.BodyVariables.UncrouchHeight * 0.51f, 0), BodyExtents, Quaternion.identity, ~(1 << 8));
+    }
+
+    /// <summary>
+    /// Aims the wishdir towards the direction the player is facing 
+    /// only if the wishdir is zero. This is useful for movement mechanics
     /// (mostly dashing) that should default to forward if the player
     /// isn't providing any directional input
     /// </summary>
@@ -304,6 +348,11 @@ public class MovementManager(GTTODUF mod, ac_CharacterController controller) {
         _wishdirRotated = Controller.transform.rotation * _wishdir;
     }
 
+    /// <summary>
+    /// Acceleration projection method which retains the classic over-correction bug from quake and source:
+    /// https://github.com/ValveSoftware/source-sdk-2013/blob/master/mp/src/game/shared/gamemovement.cpp
+    /// This is what makes airstrafing produce additional speed. Everyone say thank you to John Carmack.
+    /// </summary>
     private void ApplyAcceleration(in float wishspeed, in float accel) {
         if(_wishdirRotated.magnitude <= 0.001f) return;
         float projected = Vector3.Dot(_velocity, _wishdirRotated);
@@ -314,17 +363,28 @@ public class MovementManager(GTTODUF mod, ac_CharacterController controller) {
         _velocity += _wishdirRotated * accelspeed;
     }
 
+    /// <summary>
+    /// Reduces the Y value of the velocity vector by an arbitrary amount normalized against time.
+    /// </summary>
     private void ApplyGravity(float strength) {
         _velocity = new Vector3(_velocity.x, _velocity.y - (strength * Time.fixedDeltaTime), _velocity.z);
     }
 
+    /// <summary>
+    /// Damps the velocity vector, but maintains the Y value. This is
+    /// preferable for general purposes since it won't decrease the
+    /// strength of gravity or make it weirdly difficult to walk
+    /// up slopes.
+    /// </summary>
     private void ApplyFrictionXZ(in float strength) {
         float y = _velocity.y;
         ApplyFriction(strength);
         _velocity.y = y;
     }
 
-
+    /// <summary>
+    /// Reduces the velocity vector by the arbitrary amount supplied.
+    /// </summary>
     private void ApplyFriction(in float strength) {
         float speed = _velocity.magnitude;
         if(speed < 0.0005f) {
@@ -342,7 +402,7 @@ public class MovementManager(GTTODUF mod, ac_CharacterController controller) {
     /// <summary>
     /// Updates variables to the actual ac_CharacterController
     /// so that other aspects of the game (like viewmodel animations) 
-    /// respond properly to locomotion changes
+    /// respond properly to locomotion changes.
     /// </summary>
     private void PatchVanillaCC() {
         Controller.Crouching = Crouching.Doing;

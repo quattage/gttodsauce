@@ -16,7 +16,8 @@ To fix these issues, I've completely bypassed all stock movement code belonging 
 my own discrete kinematic controller.
 
 ## what it do:
-- Allows dashing in all directions as well as proper source-like bhopping/airstrafing
 - Reworks wallrunning to be significantly more predictable
+- Makes it easier to retain velocity after airdashing
+- Allows the controller to predict when wallruns are about to happen to tilt the camera ahead of time
 - Fixes lots of jitter issues caused by rigidbody/velocity fighting
 - Re-implements gamefeel stuff to be easier on the eyes (less camera/weapon sway overall)
