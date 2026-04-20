@@ -263,9 +263,11 @@ public class MovementManager(GTTODUF mod, ac_CharacterController controller) {
                 }
                 _dashEndpoint = Vector3.Lerp(CenterMass, Controller.DashCheck.point, 0.87f);
             } else _dashEndpoint = RB.position + (_wishdirRotated * _dashDistance);
-            float mag = _velocity.magnitude;
-            _velocity = _wishdirRotated * mag;
-            if(XZSpeed < 60) _velocity += (_velocity.normalized * 8f);
+            if(_wishdir.z >= -0.001) {
+                float mag = _velocity.magnitude;
+                _velocity = _wishdirRotated * mag;
+                if(XZSpeed < 60) _velocity += (_velocity.normalized * 8f);
+            }
             RefundGroundedState();
             Controller.CurrentDashCount--;
             PlayDashEffects();
