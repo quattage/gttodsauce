@@ -20,3 +20,4 @@ D:\Projects\A_MISC\gttod\gttoduf\bin\Debug\net46\works.quat.gttoduf.dll
 D:\Projects\A_MISC\gttod\gttoduf\bin\Debug\net46\works.quat.gttoduf.pdb
 D:\Projects\A_MISC\gttod\gttoduf\obj\Debug\net46\works.quat.gttoduf.dll
 D:\Projects\A_MISC\gttod\gttoduf\obj\Debug\net46\works.quat.gttoduf.pdb
+D:\Projects\A_MISC\gttod\gttoduf\obj\Debug\net46\gttoduf.sourcelink.json

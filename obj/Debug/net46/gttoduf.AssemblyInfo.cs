@@ -14,7 +14,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyDescriptionAttribute("ADHD")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+d15608d37dc23c6b88b48a224647a5a765669512")]
 [assembly: System.Reflection.AssemblyProductAttribute("gttod_uf")]
 [assembly: System.Reflection.AssemblyTitleAttribute("works.quat.gttoduf")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

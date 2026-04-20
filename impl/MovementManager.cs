@@ -1,11 +1,7 @@
 
-using System;
-using System.Collections.Generic;
 using EZCameraShake;
 using UnityEngine;
 using UnityEngine.AI;
-using UnityEngine.UIElements;
-using UnityEngine.UIElements.Experimental;
 using static ac_CharacterController;
 
 namespace gttoduf.impl;
