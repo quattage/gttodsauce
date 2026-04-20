@@ -3,5 +3,6 @@
 bin
 obj
 packages
+.editorconfig
 *.png
-FixPluginTypesSerialization-master
+*.sln
