@@ -29,3 +29,4 @@ my own discrete kinematic controller.
 - Reduce the height of the ground snap code and write a dedicated step detection algorithm
 - Centralize important movement variables so that they can be adjusted via commands and/or the plugin config file
 - Poke around more in the ac_CharacterController class to restore some functions that are probably broken with this mod active
+- Cache the state of the ac_CharacterController instance so that it can be restored to allow the mod to be toggled at runtime

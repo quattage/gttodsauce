@@ -1,10 +1,6 @@
 
-using System;
 using EZCameraShake;
 using UnityEngine;
-using UnityEngine.AI;
-using UnityEngine.TextCore.Text;
-using UnityEngine.UIElements;
 using static ac_CharacterController;
 
 namespace gttoduf.impl;
@@ -13,6 +9,7 @@ public class MovementManager(GTTODUF mod, ac_CharacterController controller) {
 
     private const float _slopeAngle = 65f;
     private const float _wallAngle = 42f;
+    private const float _stepHeight = 0.5f;
     private const float _dashDistance = 15f;
 
     public ac_CharacterController Controller { get; private set; } = controller;
@@ -24,7 +21,6 @@ public class MovementManager(GTTODUF mod, ac_CharacterController controller) {
     private Vector3 _dashEndpoint;
     private bool _jumpLockout = false;
     public bool HasAirjump = true;
-
 
     public Rigidbody RB => Controller.PlayerPhysics;
     public Vector3 CenterMass => Controller.PlayerCollider.transform.position + Controller.PlayerCollider.center;
@@ -289,20 +285,29 @@ public class MovementManager(GTTODUF mod, ac_CharacterController controller) {
     }
 
     private bool EvaluateWallrun() {
-        if(Crouching.IsExpected()) return false;
-        Vector3 displacement = new(0, (Controller.PlayerCollider.height / 2.1f) - Controller.PlayerCollider.radius, 0);
-        Vector3 xzVelocity = new(_velocity.x, 0, _velocity.z);
-        bool movingTowardsSurface = Physics.CapsuleCast(CenterMass + displacement,
-            CenterMass - displacement, Controller.PlayerCollider.radius,
-            xzVelocity.normalized, out RaycastHit prediction, xzVelocity.magnitude * 1.5f, ~(1 << 8)
-        );
-        if(!movingTowardsSurface) return false;
-        if(prediction.distance > Controller.PlayerCollider.radius * 2.1f) return false;
-        Vector3 wallNormal = prediction.normal;
-        float angle = Vector3.Angle(Vector3.up, wallNormal);
-        if(angle < (90 - _wallAngle) || angle > (90 + _wallAngle)) return false;
-        float lookDiff = Vector3.Dot(Controller.transform.rotation * Vector3.forward, wallNormal);
-        if(lookDiff < -0.8 || lookDiff > 0.8) return false;
+        if(Crouching.IsExpected()) {
+            Wallrunning.SetDoing(false);
+            Wallrunning.Reset();
+            return false;
+        }
+        if(!Wallrunning) {
+            Vector3 displacement = new(0, (Controller.PlayerCollider.height / 2.1f) - Controller.PlayerCollider.radius, 0);
+            Vector3 xzVelocity = new(_velocity.x, 0, _velocity.z);
+            bool movingTowardsSurface = Physics.CapsuleCast(CenterMass + displacement,
+                CenterMass - displacement, Controller.PlayerCollider.radius,
+                xzVelocity.normalized, out RaycastHit prediction, xzVelocity.magnitude * 1.5f, ~(1 << 8)
+            );
+            if(!movingTowardsSurface) return false;
+            if(prediction.distance > Controller.PlayerCollider.radius * 2.1f) return false;
+            Vector3 wallNormal = prediction.normal;
+            float angle = Vector3.Angle(Vector3.up, wallNormal);
+            if(angle < (90 - _wallAngle) || angle > (90 + _wallAngle)) return false;
+            float lookDiff = Vector3.Dot(Controller.transform.rotation * Vector3.forward, wallNormal);
+            if(lookDiff < -0.8 || lookDiff > 0.8) return false;
+            Wallrunning.SetTryingAndDoing(true);
+        }
+        Wallrunning.TickUp();
+
         return true;
     }
 
