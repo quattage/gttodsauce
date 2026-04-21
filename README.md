@@ -21,3 +21,11 @@ my own discrete kinematic controller.
 - Allows the controller to predict when wallruns are about to happen to tilt the camera ahead of time
 - Fixes lots of jitter issues caused by rigidbody/velocity fighting
 - Re-implements gamefeel stuff to be easier on the eyes (less camera/weapon sway overall)
+
+
+## whats left (todo)
+- Actually implement the wallrun step (the code only contains the prediction stuff right now)
+- Implement vaulting with a new timing system so that accidental vaults don't consume all your speed
+- Reduce the height of the ground snap code and write a dedicated step detection algorithm
+- Centralize important movement variables so that they can be adjusted via commands and/or the plugin config file
+- Poke around more in the ac_CharacterController class to restore some functions that are probably broken with this mod active
