@@ -1,3 +1,5 @@
+using System;
+
 namespace gttoduf.impl;
 
 public struct Intention {
@@ -12,6 +14,8 @@ public struct Intention {
     public bool Trying { get; private set; }
     public bool Doing { get; private set; }
     public short StateTicks { get; private set; }
+    public Action EntryTrigger;
+    public Action ExitTrigger;
 
     public Intention() { }
 
@@ -36,6 +40,8 @@ public struct Intention {
     }
 
     public void SetDoing(bool doing = true) {
+        if(!Doing && doing) EntryTrigger?.Invoke();
+        if(Doing && !doing) ExitTrigger?.Invoke();
         Doing = doing;
     }
 

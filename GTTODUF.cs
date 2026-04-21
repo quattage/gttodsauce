@@ -8,23 +8,20 @@ namespace gttoduf;
 [BepInPlugin(MyPluginInfo.PLUGIN_GUID, MyPluginInfo.PLUGIN_NAME, MyPluginInfo.PLUGIN_VERSION)]
 public class GTTODUF : BaseUnityPlugin {
 
-    public static string ID => MyPluginInfo.PLUGIN_GUID;
-    public static string Name => MyPluginInfo.PLUGIN_NAME;
-    public static string Version => MyPluginInfo.PLUGIN_VERSION;
     private static GTTODUF? _modSingleton;
     private Harmony? _harmony;
     private MovementManager? _manager;
 
     private void OnEnable() {
         if(_modSingleton != null && _modSingleton != this) {
-            Logger.LogError($"Redundant re-registration of {Name} singleton - skipped harmony injections");
+            Logger.LogError($"Redundant re-registration of {MyPluginInfo.PLUGIN_GUID} singleton - skipped harmony injections");
             Destroy(this);
             return;
         }
         if(_harmony == null)
-            _harmony = Harmony.CreateAndPatchAll(typeof(GTTODUF), ID);
+            _harmony = Harmony.CreateAndPatchAll(typeof(GTTODUF), MyPluginInfo.PLUGIN_GUID);
         else _harmony.PatchAll(typeof(GTTODUF));
-        Logger.LogInfo($"Loaded [{Name} {Version}]");
+        Logger.LogInfo($"Loaded [{MyPluginInfo.PLUGIN_GUID} {MyPluginInfo.PLUGIN_VERSION}]");
         _modSingleton = this;
 
     }
@@ -34,7 +31,7 @@ public class GTTODUF : BaseUnityPlugin {
         _harmony = null;
         _manager?.Revert();
         _manager = null;
-        Logger.LogInfo($"Destroyed {Name}");
+        Logger.LogInfo($"Unloaded {MyPluginInfo.PLUGIN_NAME}");
         _modSingleton = null;
     }
 

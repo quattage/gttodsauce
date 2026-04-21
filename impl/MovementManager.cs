@@ -12,6 +12,7 @@ namespace gttoduf.impl;
 public class MovementManager(GTTODUF mod, ac_CharacterController controller) {
 
     private const float _slopeAngle = 65f;
+    private const float _wallAngle = 42f;
     private const float _dashDistance = 15f;
 
     public ac_CharacterController Controller { get; private set; } = controller;
@@ -55,6 +56,7 @@ public class MovementManager(GTTODUF mod, ac_CharacterController controller) {
         Transform fuckOffAndDie = playerObjects?.transform.Find("WallrunObjects");
         fuckOffAndDie?.gameObject.SetActive(false);
         Controller.CameraParent = Controller.CameraAnimation.transform;
+        ConfigureEvents();
     }
 
     public void Revert() {
@@ -65,25 +67,10 @@ public class MovementManager(GTTODUF mod, ac_CharacterController controller) {
         _mod = null;
     }
 
-    private void OnHitGround() {
-        JumpMovementShake(6.5f);
-        Controller.PlayGlobalSoundEffect(2);
-        RefundGroundedState(true);
-    }
-
-    private void OnSlideEnter() {
-        Controller.PlayGlobalSoundEffect(5);
-        Controller.PlayerBody.Recoil(new Vector3(0f, 0.2f, -0.2f), Vector3.zero, 5f, 20f);
-    }
-
-    private void OnSlideExit() {
-    }
-
     public void Update() {
         if(!_mod.enabled || Controller == null || !Controller.Active || Controller.PlayerManager.PlayerEngaged) return;
         TryReset();
-        // dubious controller support since wishdir is normalized
-        _wishdir = new Vector3(-GetLeftRight(), 0, GetForwardBack()).normalized;
+        _wishdir = VectorExtentions.MakeWishdir();
 
         // ugh
         Controller.XCameraRotation = Mathf.Clamp(Controller.XCameraRotation -= (Input.GetAxis("Mouse Y") + Controller.GetProcessedLookInput("Controller Y", ref Controller.verticalTimer)) * (GameManager.GM.Settings.SavedSettings.VerticalSensitivity * Controller.SensitivityModifier) * (float)((!Controller.InvertLookAxis) ? 1 : (-1)), -90, 90);
@@ -121,7 +108,7 @@ public class MovementManager(GTTODUF mod, ac_CharacterController controller) {
         if(Jumping) Jumping.TickUp();
         else Jumping.ResetTicks();
         RB.velocity = _velocity;
-        // DebugAll();
+        DebugAll();
     }
 
     /// <summary>
@@ -141,7 +128,6 @@ public class MovementManager(GTTODUF mod, ac_CharacterController controller) {
             Grounded.SetDoing(false);
             return;
         }
-        if(!Grounded && Grounded.StateTicks < -50) OnHitGround();
         Grounded.SetDoing(true);
         if(Jumping.IsExpected()) return;
         if(Grounded.StateTicks > -100 && Grounded.StateTicks < 0) return;
@@ -172,23 +158,14 @@ public class MovementManager(GTTODUF mod, ac_CharacterController controller) {
             Jumping.SetDoing(true);
             Jumping.SetTrying(false);
             Grounded.SetTryingAndDoing(false);
-            JumpMovementShake(7f);
-            Controller.PlayGlobalSoundEffect(0);
-            Controller.CurrentDashCount = Controller.DashCount;
             return;
         }
         if(Crouching.IsTryingButNotDoing()) {
             Crouching.SetDoing();
             ResizeCollider(Controller.BodyVariables.ColliderHeight / 2.4f * Controller.BodyVariables.SizeModifier);
-            Controller.CameraAnimation.SetTrigger("Crouch");
-            Controller.PlayGlobalSoundEffect(3);
-            Controller.PlayerBody.Recoil(new Vector3(-0.1f, 0.1f, 0f), Vector3.zero, 3f, 8f);
         } else if(Crouching.IsDoingButNotTrying() && HasHeadroom()) {
-            JumpMovementShake(7f, 0.4f);
             Crouching.SetDoing(false);
             ResizeCollider(Controller.BodyVariables.ColliderHeight * Controller.BodyVariables.SizeModifier);
-            Controller.PlayGlobalSoundEffect(3);
-            Controller.PlayerBody.Recoil(new Vector3(-0.1f, 0f, 0f), Vector3.zero, 3f, 8f);
         }
         if(Sliding && Sliding.StateTicks >= 0) {
             EvaluateSliding();
@@ -196,9 +173,9 @@ public class MovementManager(GTTODUF mod, ac_CharacterController controller) {
         } else if(Sliding.StateTicks < 0) Sliding.TickUp();
         if(Crouching.Trying && Speed > 15)
             Sliding.SetTryingAndDoing(true);
-        if(Crouching) ApplyAcceleration(15, 6);
-        else ApplyAcceleration(35, 8);
-        ApplyFrictionXZ(14f);
+        if(Crouching) _velocity = _velocity.ApplyAcceleration(_wishdirRotated, 15, 6);
+        else _velocity = _velocity.ApplyAcceleration(_wishdirRotated, 35, 8);
+        _velocity = _velocity.ApplyFrictionXZ(14f);
     }
 
     /// <summary>
@@ -219,8 +196,6 @@ public class MovementManager(GTTODUF mod, ac_CharacterController controller) {
             Jumping.SetTrying(false);
             Grounded.SetTryingAndDoing(false);
             HasAirjump = false;
-            JumpMovementShake(13f);
-            Controller.PlayGlobalSoundEffect(1);
         }
         if(Crouching.IsTryingButNotDoing()) {
             Crouching.SetDoing();
@@ -229,11 +204,11 @@ public class MovementManager(GTTODUF mod, ac_CharacterController controller) {
             Crouching.SetDoing(false);
             ResizeCollider(Controller.BodyVariables.ColliderHeight * Controller.BodyVariables.SizeModifier);
         }
-        ApplyAcceleration(20, Crouching ? 4 : 3);
+        _velocity = _velocity.ApplyAcceleration(_wishdirRotated, 20, Crouching ? 4 : 3);
         if(XZSpeed > 30 && _wishdir.magnitude < 0.3)
-            ApplyFrictionXZ(0.05f);
-        else ApplyFrictionXZ(0.5f);
-        ApplyGravity(40);
+            _velocity = _velocity.ApplyFrictionXZ(0.05f);
+        else _velocity = _velocity.ApplyFrictionXZ(0.5f);
+        _velocity = _velocity.ApplyGravity();
     }
 
     /// <summary>
@@ -244,23 +219,21 @@ public class MovementManager(GTTODUF mod, ac_CharacterController controller) {
     /// and the player is allowed to transition smoothly to a crouching state.
     /// </summary>
     private void EvaluateSliding() {
-        if(Sliding.StateTicks <= 0) OnSlideEnter();
         Sliding.TickUp();
-        ApplyAcceleration(30, 0.01f);
+        _velocity = _velocity.ApplyAcceleration(_wishdirRotated, 30, 0.01f);
         if(RB.velocity.y > 0.25f) {
             Sliding.TickUp(15);
-            ApplyFrictionXZ(Sliding.StateTicks * 0.5f);
+            _velocity = _velocity.ApplyFrictionXZ(Sliding.StateTicks * 0.5f);
         } else if(RB.velocity.y < -0.25) {
             Sliding.TickDown(Sliding.StateTicks - 15);
-            ApplyFrictionXZ(0.01f);
-        } else ApplyFrictionXZ(1f);
+            _velocity = _velocity.ApplyFrictionXZ(0.01f);
+        } else _velocity = _velocity.ApplyFrictionXZ(1f);
         if(Sliding.StateTicks < 4 && XZSpeed < 60)
             _velocity += (_velocity.normalized * 8f);
         if(!Crouching.IsExpected() || Speed < 15f) {
             Sliding.SetDoing(false);
             Sliding.Reset();
             Sliding.TickDown(30);
-            OnSlideExit();
         }
     }
 
@@ -278,8 +251,11 @@ public class MovementManager(GTTODUF mod, ac_CharacterController controller) {
                 Dashing.TickDown(15);
                 return false;
             }
-            ForceWishdirForward();
-            bool hit = Physics.BoxCast(CenterMass - _wishdirRotated, FloorExtents * 0.7f, _wishdirRotated, out Controller.DashCheck, Quaternion.identity, _dashDistance, ~(1 << 8));
+            DefaultForward();
+            bool hit = Physics.BoxCast(CenterMass - _wishdirRotated,
+                FloorExtents * 0.7f, _wishdirRotated, out Controller.DashCheck,
+                Quaternion.identity, _dashDistance, ~(1 << 8)
+            );
             if(hit) {
                 if(Controller.DashCheck.distance < Controller.PlayerCollider.radius * 4f) {
                     Dashing.SetTryingAndDoing(false);
@@ -296,7 +272,6 @@ public class MovementManager(GTTODUF mod, ac_CharacterController controller) {
             } else _velocity = new Vector3(0, 0, 0);
             RefundGroundedState();
             Controller.CurrentDashCount--;
-            PlayDashEffects();
         }
         Controller.PlayerPhysics.isKinematic = true;
         Dashing.TickUp();
@@ -313,10 +288,22 @@ public class MovementManager(GTTODUF mod, ac_CharacterController controller) {
         return true;
     }
 
-
     private bool EvaluateWallrun() {
-
-        return false;
+        if(Crouching.IsExpected()) return false;
+        Vector3 displacement = new(0, (Controller.PlayerCollider.height / 2.1f) - Controller.PlayerCollider.radius, 0);
+        Vector3 xzVelocity = new(_velocity.x, 0, _velocity.z);
+        bool movingTowardsSurface = Physics.CapsuleCast(CenterMass + displacement,
+            CenterMass - displacement, Controller.PlayerCollider.radius,
+            xzVelocity.normalized, out RaycastHit prediction, xzVelocity.magnitude * 1.5f, ~(1 << 8)
+        );
+        if(!movingTowardsSurface) return false;
+        if(prediction.distance > Controller.PlayerCollider.radius * 2.1f) return false;
+        Vector3 wallNormal = prediction.normal;
+        float angle = Vector3.Angle(Vector3.up, wallNormal);
+        if(angle < (90 - _wallAngle) || angle > (90 + _wallAngle)) return false;
+        float lookDiff = Vector3.Dot(Controller.transform.rotation * Vector3.forward, wallNormal);
+        if(lookDiff < -0.8 || lookDiff > 0.8) return false;
+        return true;
     }
 
     /// <summary>
@@ -338,65 +325,15 @@ public class MovementManager(GTTODUF mod, ac_CharacterController controller) {
 
     /// <summary>
     /// Aims the wishdir towards the direction the player is facing 
-    /// only if the wishdir is zero. This is useful for movement mechanics
-    /// (mostly dashing) that should default to forward if the player
-    /// isn't providing any directional input
+    /// only if the wishdir is zero. This is useful for movement 
+    /// mechanics (mostly dashing) that should default to the
+    /// forward direction if the player isn't providing any 
+    /// directional input.
     /// </summary>
-    private void ForceWishdirForward() {
+    private void DefaultForward() {
         if(_wishdir.magnitude > 0.4f) return;
         _wishdir = new(0, 0, 1);
         _wishdirRotated = Controller.transform.rotation * _wishdir;
-    }
-
-    /// <summary>
-    /// Acceleration projection method which retains the classic over-correction bug from quake and source:
-    /// https://github.com/ValveSoftware/source-sdk-2013/blob/master/mp/src/game/shared/gamemovement.cpp
-    /// This is what makes airstrafing produce additional speed. Everyone say thank you to John Carmack.
-    /// </summary>
-    private void ApplyAcceleration(in float wishspeed, in float accel) {
-        if(_wishdirRotated.magnitude <= 0.001f) return;
-        float projected = Vector3.Dot(_velocity, _wishdirRotated);
-        float addedspeed = wishspeed - projected;
-        if(addedspeed <= 0) return;
-        float accelspeed = accel * Time.fixedDeltaTime * wishspeed;
-        if(accelspeed > addedspeed) accelspeed = addedspeed;
-        _velocity += _wishdirRotated * accelspeed;
-    }
-
-    /// <summary>
-    /// Reduces the Y value of the velocity vector by an arbitrary amount normalized against time.
-    /// </summary>
-    private void ApplyGravity(float strength) {
-        _velocity = new Vector3(_velocity.x, _velocity.y - (strength * Time.fixedDeltaTime), _velocity.z);
-    }
-
-    /// <summary>
-    /// Damps the velocity vector, but maintains the Y value. This is
-    /// preferable for general purposes since it won't decrease the
-    /// strength of gravity or make it weirdly difficult to walk
-    /// up slopes.
-    /// </summary>
-    private void ApplyFrictionXZ(in float strength) {
-        float y = _velocity.y;
-        ApplyFriction(strength);
-        _velocity.y = y;
-    }
-
-    /// <summary>
-    /// Reduces the velocity vector by the arbitrary amount supplied.
-    /// </summary>
-    private void ApplyFriction(in float strength) {
-        float speed = _velocity.magnitude;
-        if(speed < 0.0005f) {
-            _velocity = Vector3.zero;
-            return;
-        }
-        float friction = speed * Time.fixedDeltaTime * strength;
-        float diff = Mathf.Max(0, speed - friction);
-        if(diff != speed) {
-            diff /= speed;
-            _velocity *= diff;
-        }
     }
 
     /// <summary>
@@ -427,6 +364,10 @@ public class MovementManager(GTTODUF mod, ac_CharacterController controller) {
         RB.isKinematic = false;
     }
 
+    /// <summary>
+    /// Interpolates the head position down/up based on the target % supplied.
+    /// 1 -> crouch height, 0 -> stand height. This method is called at frame-time.
+    /// </summary>
     private void UpdateHeadZ(float target, float speed) {
         float t = 1f - Mathf.Exp(-speed * Time.deltaTime);
         float currentHeight = Vector3.Dot(Controller.CameraParent.localPosition, Vector3.up);
@@ -436,6 +377,11 @@ public class MovementManager(GTTODUF mod, ac_CharacterController controller) {
         Controller.CameraParent.localPosition = new Vector3(0, newHeight, 0);
     }
 
+    /// <summary>
+    /// Reduces the size of the player collider and applies a 
+    /// corrective offset so that the collider shrinks relative 
+    /// to its bottom surface instead of its center.
+    /// </summary>
     private void ResizeCollider(float newHeight) {
         Vector3 center = Controller.PlayerCollider.center;
         float prevHeight = Controller.PlayerCollider.height;
@@ -443,6 +389,48 @@ public class MovementManager(GTTODUF mod, ac_CharacterController controller) {
         center.y += delta * 0.5f;
         Controller.PlayerCollider.center = center;
         Controller.PlayerCollider.height = newHeight;
+    }
+
+    private void ConfigureEvents() {
+        Grounded.EntryTrigger += () => {
+            if(Grounded.StateTicks > -50) return;
+            JumpMovementShake(6.5f);
+            Controller.PlayGlobalSoundEffect(2);
+            RefundGroundedState(true);
+        };
+        Jumping.EntryTrigger += () => {
+            if(Grounded) {
+                JumpMovementShake(7f);
+                Controller.PlayGlobalSoundEffect(0);
+            } else {
+                JumpMovementShake(15f);
+                Controller.PlayGlobalSoundEffect(1);
+            }
+            Controller.CurrentDashCount = Controller.DashCount;
+        };
+        Sliding.EntryTrigger += () => {
+            Controller.PlayGlobalSoundEffect(5);
+            Controller.PlayerBody.Recoil(new Vector3(0f, 0.2f, -0.2f), Vector3.zero, 5f, 20f);
+        };
+        Crouching.EntryTrigger += () => {
+            Controller.CameraAnimation.SetTrigger("Crouch");
+            Controller.PlayGlobalSoundEffect(3);
+            Controller.PlayerBody.Recoil(new Vector3(-0.1f, 0.1f, 0f), Vector3.zero, 3f, 8f);
+        };
+        Crouching.ExitTrigger += () => {
+            Controller.PlayGlobalSoundEffect(3);
+            JumpMovementShake(7f);
+            Controller.PlayerBody.Recoil(new Vector3(-0.1f, 0f, 0f), Vector3.zero, 3f, 8f);
+        };
+        Dashing.EntryTrigger += () => {
+            Controller.PlayGlobalSoundEffect(Controller.WorldStep ? 9 : 6);
+            Controller.Effects.BumpDistortion(-25f, 150f);
+            Controller.Health.SetInvulnerability(0.15f);
+            Controller.Effects.BumpDash(1f, 25f);
+            Controller.MovementShake();
+            Controller.PlayerBody.Recoil(new Vector3(_wishdir.x * 0.08f, 0.03f, _wishdir.z * 0.2f), Vector3.zero, 5f, 8f);
+        };
+        Wallrunning.EntryTrigger += () => { };
     }
 
     private void VerySmallMovementShake() {
@@ -461,13 +449,12 @@ public class MovementManager(GTTODUF mod, ac_CharacterController controller) {
         Controller.PlayerBody.Recoil(Vector3.zero, new Vector3(4, 6, 0), 2f, 6f);
     }
 
-    private void PlayDashEffects() {
-        Controller.PlayGlobalSoundEffect(Controller.WorldStep ? 9 : 6);
-        Controller.Effects.BumpDistortion(-25f, 150f);
-        Controller.Health.SetInvulnerability(0.15f);
-        Controller.Effects.BumpDash(1f, 25f);
-        Controller.MovementShake();
-        Controller.PlayerBody.Recoil(new Vector3(_wishdir.x * 0.08f, 0.03f, _wishdir.z * 0.2f), Vector3.zero, 5f, 8f);
+    private void TryReset() {
+        if(Input.GetKey(KeyCode.F2)) {
+            _velocity = Vector3.zero;
+            RB.velocity = Vector3.zero;
+            Controller.transform.position = new Vector3(0, 0, 0);
+        }
     }
 
     private void DebugAll() {
@@ -482,24 +469,6 @@ public class MovementManager(GTTODUF mod, ac_CharacterController controller) {
         _mod.Log("Crouching: " + Crouching);
         _mod.Log("Sliding: " + Sliding);
         _mod.Log("Dashing: " + Dashing);
-        _mod.Log("BS: " + BottomSurface);
-    }
-
-    private float GetForwardBack() {
-        return Input.GetAxis("Vertical") + (KeyBindingManager.ActionPressed(KeyAction.WalkForward) ? 1
-            : (KeyBindingManager.ActionPressed(KeyAction.WalkBackward) ? (-1) : 0));
-    }
-
-    private float GetLeftRight() {
-        return -Input.GetAxis("Horizontal") + (KeyBindingManager.ActionPressed(KeyAction.StrafeLeft) ? 1
-            : (KeyBindingManager.ActionPressed(KeyAction.StrafeRight) ? (-1) : 0));
-    }
-
-    private void TryReset() {
-        if(Input.GetKey(KeyCode.F2)) {
-            _velocity = Vector3.zero;
-            RB.velocity = Vector3.zero;
-            Controller.transform.position = new Vector3(0, 0, 0);
-        }
+        _mod.Log("FDT: " + Time.fixedDeltaTime);
     }
 }
