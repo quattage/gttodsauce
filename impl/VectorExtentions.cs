@@ -53,6 +53,14 @@ public static class VectorExtentions {
     }
 
     /// <summary>
+    /// Reduces the Y value of the velocity vector by an arbitrary amount normalized against time.
+    /// I have no idea 
+    /// </summary>
+    public static Vector3 ApplyGravity(this in Vector3 vector, float normalize, float strength = 40) {
+        return new Vector3(vector.x, vector.y - (strength * normalize), vector.z);
+    }
+
+    /// <summary>
     /// Acceleration projection method which retains the classic over-correction bug from quake and source:
     /// https://github.com/ValveSoftware/source-sdk-2013/blob/master/mp/src/game/shared/gamemovement.cpp
     /// This is what makes airstrafing produce additional speed. Everyone say thank you to John Carmack.

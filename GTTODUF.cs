@@ -62,18 +62,36 @@ public class GTTODUF : BaseUnityPlugin {
     }
 
     [HarmonyPatch(typeof(ac_CharacterController), "Update"), HarmonyPrefix]
-    public static bool gttoduf_UpdatePatch(ac_CharacterController __instance) {
+    public static bool gttoduf_ac_CharacterController_Update(ac_CharacterController __instance) {
         _modSingleton.CreateManager(__instance).Update();
         return false;
     }
 
     [HarmonyPatch(typeof(ac_CharacterController), "FixedUpdate"), HarmonyPrefix]
-    public static bool gttoduf_FixedUpdatePatch(ac_CharacterController __instance) {
+    public static bool gttoduf_ac_CharacterController_FixedUpdate(ac_CharacterController __instance) {
         _modSingleton.CreateManager(__instance).FixedUpdate();
         if(Input.GetKeyDown(KeyCode.F4)) {
             _modSingleton.enabled = !_modSingleton.enabled;
             GameManager.GM.GetComponent<GTTOD_HUD>().BigTextPopUp($"{(_modSingleton.enabled ? "Unfucked" : "Re-fucked")} GTTOD", 0);
         }
+        return false;
+    }
+
+    [HarmonyPatch(typeof(ac_CharacterController), "Start"), HarmonyPostfix]
+    public static void gttoduf_ac_CharacterController_Start(ac_CharacterController __instance) {
+        _modSingleton?._manager?.Apply();
+        __instance.ControllerUpdate();
+        __instance.UpdateBasicMovement();
+        __instance.CameraUpdate();
+        __instance.ColliderUpdate();
+        __instance.UpdateAdvancedMovement();
+        __instance.UpdateMovingPlatform();
+        _modSingleton?.Log("overridden start");
+    }
+
+    [HarmonyPatch(typeof(ac_CharacterController), "LateUpdate"), HarmonyPrefix]
+    public static bool gttoduf_ac_CharacterController_LateUpdate(ac_CharacterController __instance) {
+        // the mod doesn't need this
         return false;
     }
 }

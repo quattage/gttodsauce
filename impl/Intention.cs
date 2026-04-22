@@ -2,83 +2,72 @@ using System;
 
 namespace gttoduf.impl;
 
+/**
+    A stripped down version of what I wrote for my own movement - 
+    this represents one discrete state for use in a state machine
+    but it's been slightly retooled so that they can be instantiated
+    directly in the movement manager and used as flags.
+**/
 public struct Intention {
-
-    /**
-        A stripped down version of what I wrote for my own movement - 
-        this represents one discrete state for use in a state machine
-        but it's been slightly retooled so that I can just instantiate
-        them directly in the movement manager and just use them as flags
-    **/
 
     public bool Trying { get; private set; }
     public bool Doing { get; private set; }
-    public short StateTicks { get; private set; }
+    public short Ticks { get; private set; }
+
     public Action EntryTrigger;
     public Action ExitTrigger;
 
+    public readonly bool Expected => Trying || Doing;
+    public readonly bool TryingButNotDoing => Trying && !Doing;
+    public readonly bool DoingButNotTrying => !Trying && Doing;
+
     public Intention() { }
 
-    public Intention TickUp(int amt = 1) {
-        if(StateTicks < 1024)
-            StateTicks += (short)amt;
+    public Intention Tick(int amount = 1) {
+        if(amount > 0 && Ticks < 1024)
+            Ticks += (short)amount;
+        else if(amount < 0 && Ticks > -1024)
+            Ticks += (short)amount;
+        // TOOD ticking by 0 should be tracked for actions later
         return this;
     }
 
-    public Intention TickDown(int amt = 1) {
-        if(StateTicks > -1024)
-            StateTicks -= (short)amt;
-        return this;
+    public void ResetTicks() {
+        Ticks = 0;
     }
 
-    public void SetTrying(bool trying = true) {
-        Trying = trying;
+    public void SetTrying(bool value = true) {
+        Trying = value;
     }
 
-    public void SetTryingIfNotDoing(bool trying = true) {
-        if(Doing != trying) Trying = trying;
+    public void SetTryingIfNotDoing(bool value = true) {
+        if(Doing != value) SetTrying(value);
     }
 
-    public void SetDoing(bool doing = true) {
-        if(!Doing && doing) EntryTrigger?.Invoke();
-        if(Doing && !doing) ExitTrigger?.Invoke();
-        Doing = doing;
+    public void SetDoing(bool value = true) {
+        if(!Doing && value) EntryTrigger?.Invoke();
+        if(Doing && !value) ExitTrigger?.Invoke();
+        Doing = value;
     }
 
-    public void SetDoingIfNotTrying(bool doing = true) {
-        if(Trying != doing) Doing = doing;
+    public void SetDoingIfNotTrying(bool value = true) {
+        if(Trying != value) SetDoing(value);
     }
 
     public void SetTryingAndDoing(bool value) {
-        Trying = value;
-        Doing = value;
+        SetTrying(value);
+        SetDoing(value);
     }
 
     public void Reset() {
         if(!Doing) {
-            Trying = false;
-            StateTicks = 0;
+            SetTrying(false);
+            ResetTicks();
         }
     }
 
-    public void ResetTicks() {
-        StateTicks = 0;
-    }
-
-    public readonly bool IsExpected() {
-        return Trying || Doing;
-    }
-
-    public readonly bool IsTryingButNotDoing() {
-        return Trying && !Doing;
-    }
-
-    public readonly bool IsDoingButNotTrying() {
-        return !Trying && Doing;
-    }
-
     public readonly override string ToString() {
-        return ("trying? " + Trying + " doing? " + Doing).ToLowerInvariant() + ", (" + StateTicks + "t)";
+        return ("trying? " + Trying + " doing? " + Doing).ToLowerInvariant() + ", (" + Ticks + "t)";
     }
 
     public static implicit operator bool(Intention i) {
