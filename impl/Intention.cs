@@ -60,10 +60,8 @@ public struct Intention {
     }
 
     public void Reset() {
-        if(!Doing) {
-            SetTrying(false);
-            ResetTicks();
-        }
+        SetTryingAndDoing(false);
+        ResetTicks();
     }
 
     public readonly override string ToString() {

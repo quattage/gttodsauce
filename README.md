@@ -24,9 +24,9 @@ my own discrete kinematic controller.
 
 
 ## whats left (todo)
-- Actually implement the wallrun step (the code only contains the prediction stuff right now)
+- Actually implement the wallrun step (the code only contains the prediction & heuristics right now)
 - Implement vaulting with a new timing system so that accidental vaults don't consume all your speed
-- Reduce the height of the ground snap code and write a dedicated step detection algorithm
+- Inject some code into other movement objects (like monkey bars) to refund grounded state
 - Centralize important movement variables so that they can be adjusted via commands and/or the plugin config file
-- Poke around more in the ac_CharacterController class to restore some functions that are probably broken with this mod active
+- Poke around more in the ac_CharacterController class to restore some functions that are probably broken with the mod active
 - Cache the state of the ac_CharacterController instance so that it can be restored to allow the mod to be toggled at runtime

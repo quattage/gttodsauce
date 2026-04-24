@@ -2,9 +2,11 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Security.Cryptography;
 using EZCameraShake;
 using UnityEngine;
 using static ac_CharacterController;
+using static gttoduf.impl.TraceHelpers;
 
 namespace gttoduf.impl;
 
@@ -47,16 +49,24 @@ public class MovementManager(GTTODUF mod, ac_CharacterController controller) {
     private Vector3 _wishdirRotated;
     private Vector3 _velocity;
     private Vector3 _dashEndpoint;
+    private Vector3 _avgWallNormal;
+    private Vector3 _prevWallNormal;
     private Vector3 _cameraZ; // x = stand, y = crouch, z = impulse
     private float _prevY;
+    private AudioSource _wallrunSounds;
     public bool HasAirjump { get; private set; } = true;
 
     // called by the mod object when the code is injected
     public void Apply() {
         _cameraZ = new(Controller.CameraParent.localPosition.y, Controller.CameraParent.localPosition.y - 1f, 1);
         GameObject playerObjects = Controller.transform.parent.gameObject;
-        Transform fuckOffAndDie = playerObjects?.transform.Find("WallrunObjects");
-        fuckOffAndDie?.gameObject.SetActive(false);
+        ac_WallController wallruns = playerObjects?.transform.GetComponentInChildren<ac_WallController>(true);
+        ac_WallDetection why = playerObjects?.transform.GetComponentInChildren<ac_WallDetection>(true);
+        if(wallruns != null) {
+            wallruns.enabled = false;
+            why?.enabled = false;
+            _wallrunSounds = wallruns.gameObject.GetComponent<AudioSource>();
+        }
         if(Controller.PlayerCollider == null)
             Controller.PlayerCollider = Controller.GetComponent<CapsuleCollider>();
         Controller.ColliderUpdate();
@@ -67,8 +77,11 @@ public class MovementManager(GTTODUF mod, ac_CharacterController controller) {
     // called by the mod object before its destroyed to clean things up
     public void Revert() {
         GameObject playerObjects = Controller.transform.parent.gameObject;
-        Transform eatShit = playerObjects?.transform.Find("WallrunObjects");
-        eatShit?.gameObject.SetActive(true);
+        ac_WallController wallruns = playerObjects?.transform.GetComponentInChildren<ac_WallController>(true);
+        ac_WallDetection why = playerObjects?.transform.GetComponentInChildren<ac_WallDetection>(true);
+        wallruns?.enabled = true;
+        why?.enabled = true;
+        _wallrunSounds = null;
         Controller = null;
         _mod = null;
     }
@@ -99,6 +112,7 @@ public class MovementManager(GTTODUF mod, ac_CharacterController controller) {
         Crouching.SetTrying(KeyBindingManager.ActionPressed(KeyAction.Crouch));
         Dashing.SetTrying(!Crouching.Expected && KeyBindingManager.ActionPressed(KeyAction.Dash));
         UpdateHeadZ(Crouching.Doing ? 1.6f : 0, Sliding ? 20f : 8f);
+        UpdateHeadSlew(Wallrunning ? -5 : 0, 12);
         PatchVanillaCC();
     }
 
@@ -112,8 +126,8 @@ public class MovementManager(GTTODUF mod, ac_CharacterController controller) {
         if(!RB.isKinematic) _velocity = RB.velocity;
 
         FixupRigidbody();
-        InspectGround();
         InspectWalls();
+        InspectGround();
 
         if(Dashing.Ticks >= 0 && Dashing.Expected) {
             if(EvaluateDash()) return;
@@ -131,7 +145,6 @@ public class MovementManager(GTTODUF mod, ac_CharacterController controller) {
         RB.velocity = _velocity;
         Jumping.SetTrying(false);
         Crouching.SetTrying(false);
-        DebugAll();
         _prevY = RB.position.y;
     }
 
@@ -145,7 +158,7 @@ public class MovementManager(GTTODUF mod, ac_CharacterController controller) {
     /// considered to be standing on them, since the box that's cast is axis-aligned.
     /// </summary>
     private void InspectGround() {
-        if(!Grounded && YSpeed > 0.1f) return;
+        if((Wallrunning.Ticks < 0 || !Grounded && YSpeed > 0.1f)) return;
         bool hit = Physics.BoxCast(CenterMass, FloorExtents, Vector3.down, out Controller.GroundCheck, Quaternion.identity, FloorCastDistance);
         float distance = Mathf.Abs(RB.position.y - BottomSurface.y);
         if(!hit || Controller.GroundCheck.distance > distance || Vector3.Angle(Vector3.up, Controller.GroundCheck.normal) > _slopeAngle) {
@@ -171,55 +184,46 @@ public class MovementManager(GTTODUF mod, ac_CharacterController controller) {
     /// valid wall surfaces.
     /// </summary>
     private void InspectWalls() {
-        if(Grounded || Grounded.Ticks > -10 || Crouching.Expected || (Mathf.Abs(_velocity.x) < 0.5f || Mathf.Abs(_velocity.z) < 0.5f)) {
-            Wallrunning.SetTryingAndDoing(false);
+        if(Wallrunning.Doing) return;
+        if(Wallrunning.Ticks < 0) {
+            Wallrunning.Tick();
+            return;
+        }
+        if(Grounded || Crouching.Expected) {
             Wallrunning.Reset();
             return;
         }
-        RaycastHit? prediction = TraceTrajectory(120, Time.fixedDeltaTime * 15);
-        if(prediction == null) {
-            Wallrunning.SetTryingAndDoing(false);
-            Wallrunning.Reset();
-            return;
-        }
-        RaycastHit hit = (RaycastHit)prediction;
-        Vector3 wallNormal = hit.normal;
-        if(hit.distance > 10) {
-            Wallrunning.SetTryingAndDoing(false);
-            Wallrunning.Reset();
-            return;
-        }
-        float angle = Vector3.Angle(Vector3.up, wallNormal);
-        if(angle < (90 - _wallAngle) || angle > (90 + _wallAngle)) {
-            Wallrunning.SetTryingAndDoing(false);
-            Wallrunning.Reset();
-            return;
-        }
-        float lookDiff = Vector3.Dot(hit.normal, Quaternion.Euler(0, Controller.YCameraRotation, 0) * Vector3.forward);
-        _mod.Log("LD: " + lookDiff);
-        Wallrunning.SetTrying(true);
-    }
 
-    private RaycastHit? TraceTrajectory(float traceDistance = 20f, float step = 0.01f) {
-        Vector3 pos = CenterMass;
-        Vector3 vel = _velocity, dir, delta;
-        Vector3 displacement = new(0, (Collider.height / 2.4f), 0);
-        float progress = 0f, stepDistance;
-        while(progress < traceDistance) {
-            vel = vel.ApplyGravity(40, step).ApplyFrictionXZ(0.5f * step);
-            delta = vel * step;
-            pos += delta;
-            stepDistance = delta.magnitude;
-            dir = delta.normalized;
-            bool hit = Physics.CapsuleCast(
-                pos + displacement, pos - displacement, Collider.radius * 0.92f,
-                dir, out RaycastHit trace, stepDistance, PlayerMask
-            );
-            progress += stepDistance;
-            if(!hit) continue;
-            return trace;
+        WallCandidate[] nearby = WallCandidate.Collect(CenterMass, Collider.height, Collider.radius, Controller.transform.forward, Controller.transform.right, _velocity, _wishdirRotated);
+        _mod.Log("0:" + nearby[0].Hit);
+        _mod.Log("1:" + nearby[1].Hit);
+        _mod.Log("2:" + nearby[2].Hit);
+        _mod.Log("3:" + nearby[3].Hit);
+        _mod.Log("4:" + nearby[4].Hit);
+        WallCandidate wall = WallCandidate.FindBest(nearby);
+
+        if(!wall.Hit || wall.Distance > 10) {
+            Wallrunning.Reset();
+            return;
         }
-        return null;
+        _avgWallNormal = wall.NormXZ;
+        Vector3 normXZ = new Vector3(_avgWallNormal.x, 0, _avgWallNormal.z).normalized;
+        float verticalAngle = Vector3.Angle(Vector3.up, _avgWallNormal);
+        if(verticalAngle < (90 - _wallAngle) || verticalAngle > (90 + _wallAngle)) {
+            Wallrunning.Reset();
+            return;
+        }
+        Quaternion look = Quaternion.Euler(0, Controller.YCameraRotation, 0);
+        float lookDiff = Vector3.Dot(normXZ, look * Vector3.forward);
+        if(lookDiff > -0.8 && lookDiff < 0.4) {
+            _avgWallNormal = normXZ;
+            Wallrunning.SetTrying(true);
+            float tanDiff = Vector3.Dot(normXZ, look * Vector3.right);
+            WallrunLeft = tanDiff > 0;
+            return;
+        }
+        Wallrunning.Reset();
+        return;
     }
 
     /// <summary>
@@ -311,7 +315,6 @@ public class MovementManager(GTTODUF mod, ac_CharacterController controller) {
         if(Sliding.Ticks < 4 && XZSpeed < 60)
             _velocity += (_velocity.normalized * 8f);
         if(!Crouching.Expected || Speed < 15f) {
-            Sliding.SetDoing(false);
             Sliding.Reset();
             Sliding.Tick(-30);
         }
@@ -324,6 +327,7 @@ public class MovementManager(GTTODUF mod, ac_CharacterController controller) {
     /// and their velocity is adjusted to point in the dash direction.
     /// </summary>
     private bool EvaluateDash() {
+        // prepare dash target
         if(Dashing.TryingButNotDoing) {
             if(Grounded.Ticks > -15 || Controller.CurrentDashCount <= 0) {
                 Dashing.SetTryingAndDoing(false);
@@ -353,6 +357,7 @@ public class MovementManager(GTTODUF mod, ac_CharacterController controller) {
             RefundGroundedState();
             Controller.CurrentDashCount--;
         }
+        // do dashing
         Controller.PlayerPhysics.isKinematic = true;
         Dashing.Tick();
         Dashing.SetDoing();
@@ -369,37 +374,55 @@ public class MovementManager(GTTODUF mod, ac_CharacterController controller) {
     }
 
     private bool EvaluateWallrun() {
-        Vector3 displacement = new(0, (Collider.height / 2.2f) - Collider.radius, 0);
-        RaycastHit[] wallHits = Physics.CapsuleCastAll(
-            CenterMass + displacement, CenterMass - displacement,
-            Collider.radius * 1.2f, Vector3.zero, 0, PlayerMask
-        );
-
-        return false;
-        // RB.velocity = _velocity; <-- reminder to do this
+        if(Grounded || Grounded.Ticks > -10 || Crouching.Expected)
+            return CancelWallrun();
+        bool isOnWall = TraceHelpers.HorizontalFan(CenterMass, -_avgWallNormal, out Vector3 avgPos, out _avgWallNormal, distance: Collider.radius * 4f);
+        if(!isOnWall) {
+            InspectWalls();
+            return false;
+        }
+        float offset = Vector3.Distance(CenterMass, avgPos);
+        if(offset > Collider.radius * 2f) {
+            InspectWalls();
+            if(!Wallrunning.Trying) {
+                Wallrunning.Reset();
+                return false;
+            }
+        }
+        float grade = Vector2.Dot(new Vector2(_avgWallNormal.x, _avgWallNormal.z), new Vector2(_prevWallNormal.x, _prevWallNormal.z));
+        if(grade < 0.8) CancelWallrun();
+        if(Wallrunning.TryingButNotDoing) {
+            Wallrunning.SetDoing();
+            Wallrunning.ResetTicks();
+            Crouching.Reset();
+            _velocity = Vector3.ProjectOnPlane(_velocity, _avgWallNormal);
+            if(XZSpeed < 60) _velocity += (_velocity.normalized * 8f);
+        }
+        _velocity = _velocity
+            .ProjectAndPreserve(_avgWallNormal)
+            .ApplyAcceleration(Vector3.ProjectOnPlane(_wishdirRotated, _avgWallNormal), 48, 1.3f)
+            .ApplyFrictionY(4)
+            .ApplyFrictionXZ(0.1f);
+        _velocity -= _avgWallNormal * 0.0275f;
+        RB.velocity = _velocity;
+        Wallrunning.Tick();
+        _prevWallNormal = _avgWallNormal;
+        return true;
     }
 
-    private RaycastHit[] CollectWallCandiates(out Vector3 avgNormal, out Vector3 avgPos, out float closestDistance, in float radius = 10, in int max = 0) {
-        RaycastHit[] wallHits = Physics.SphereCastAll(CenterMass, radius, Vector3.zero, 0, PlayerMask);
-        if(wallHits.Length <= 0) {
-            avgNormal = Vector3.zero;
-            avgPos = Vector3.zero;
-            closestDistance = 0;
-            return wallHits;
-        }
-        avgNormal = wallHits[0].normal;
-        avgPos = wallHits[0].point;
-        closestDistance = wallHits[0].distance;
-        int counts = 1;
-        for(int x = 1; x < Mathf.Min(max, wallHits.Length); x++) {
-            RaycastHit candidate = wallHits[x];
-            avgNormal += candidate.normal;
-            avgPos += candidate.point;
-            counts++;
-        }
-        avgNormal /= counts;
-        avgPos /= counts;
-        return wallHits;
+    private bool CancelWallrun(bool penalize = true) {
+        if(Wallrunning.Ticks >= 1)
+            RefundGroundedState(true);
+        Wallrunning.Reset();
+        if(penalize) Wallrunning.Tick(-15);
+        return false;
+    }
+
+    private void UpdateHeadSlew(float strength, float speed = 12f) {
+        Vector3 leanUp = Vector3.Slerp(Vector3.up, -_avgWallNormal, Mathf.Abs(strength)) * Mathf.Sign(strength);
+        Vector3 forward = Vector3.ProjectOnPlane(Controller.CameraParent.forward, leanUp).normalized;
+        Quaternion slewRotation = Quaternion.LookRotation(forward, leanUp);
+        Controller.CameraParent.rotation = Quaternion.Slerp(Controller.CameraParent.rotation, slewRotation, Time.deltaTime * speed);
     }
 
     /// <summary>
@@ -430,9 +453,11 @@ public class MovementManager(GTTODUF mod, ac_CharacterController controller) {
     private void PatchVanillaCC() {
         Controller.Crouching = Crouching.Doing;
         Controller.Walking = Grounded && _wishdir.magnitude > 0.1;
-        if(Grounded) {
-            Controller.CharacterGroundState = GroundState.SteadyGround;
-        } else Controller.CharacterGroundState = GroundState.InAir;
+        if(Grounded) Controller.CharacterGroundState = GroundState.SteadyGround;
+        else {
+            if(Wallrunning) Controller.CharacterGroundState = GroundState.Climbing;
+            else Controller.CharacterGroundState = GroundState.InAir;
+        }
     }
 
     /// <summary>
@@ -515,7 +540,12 @@ public class MovementManager(GTTODUF mod, ac_CharacterController controller) {
             Controller.MovementShake();
             Controller.PlayerBody.Recoil(new Vector3(_wishdir.x * 0.08f, 0.03f, _wishdir.z * 0.2f), Vector3.zero, 5f, 8f);
         };
-        Wallrunning.EntryTrigger += () => { };
+        Wallrunning.EntryTrigger += () => {
+            _wallrunSounds?.Play();
+        };
+        Wallrunning.ExitTrigger += () => {
+            _wallrunSounds?.Stop();
+        };
     }
 
     private void VerySmallMovementShake() {
