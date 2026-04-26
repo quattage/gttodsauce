@@ -3,7 +3,7 @@
 
 using UnityEngine;
 
-namespace gttoduf.impl;
+namespace GTTODSauce.impl;
 
 /// <summary>
 /// A series of helper methods that have been pulled out of the MovementManager

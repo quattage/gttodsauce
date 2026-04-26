@@ -1,15 +1,19 @@
 using UnityEngine;
 
-namespace gttoduf.impl;
+namespace GTTODSauce.impl;
 
 public class TraceHelpers {
 
+    /// <summary>
+    /// A container object for managing a heuristic measurement
+    /// of how "wall-like" a given RaycastHit is.
+    /// </summary>
     public readonly struct WallCandidate {
 
         public readonly bool Hit;
         public readonly RaycastHit Trace;
         public readonly Vector3 NormXZ;
-        private readonly Vector4 _vars; // up, lookDiff, moveDiff, distance, 
+        private readonly Vector4 _vars;
         public readonly float UpAngle => _vars.x;
         public readonly float LookDiff => _vars.y;
         public readonly float MoveDiff => _vars.z;
@@ -49,6 +53,18 @@ public class TraceHelpers {
             return new(hit.Value, pos, wishdir, forwardLook);
         }
 
+        /// <summary>
+        /// Creates 5 WallCandidate objects by casting capsules in various directions.
+        /// </summary>
+        /// <param name="pos">The initial position to cast from</param>
+        /// <param name="height">The height of the capsule to cast</param>
+        /// <param name="radius">The radius of the capsule</param>
+        /// <param name="forwardLook">The direction the capsule is looking</param>
+        /// <param name="tangentLook">The tangent of the forwardLook direction (usually just Transform.right)</param>
+        /// <param name="velocity">The current velocity of the parent caster</param>
+        /// <param name="wishdir">The current attempted moving direction of the parent caster on the XZ plane</param>
+        /// <param name="mask">The layermask to use when casting</param>
+        /// <returns>A list of WallCandidates in no particular order.</returns>
         public static WallCandidate[] Collect(in Vector3 pos, in float height, in float radius, in Vector3 forwardLook, in Vector3 tangentLook, in Vector3 velocity, in Vector3 wishdir, int mask = ~(1 << 8)) {
             Vector3 displace = new(0, (height / 2) - radius, 0);
             float rad = radius * 0.7f;
@@ -61,6 +77,14 @@ public class TraceHelpers {
             ];
         }
 
+        /// <summary>
+        /// Skims through a list of WallCandidate objects to find
+        /// the one that's the most wall-like. Prioritized closer
+        /// distances and measures how perpendicular the wall is
+        /// to the current moving direction.
+        /// </summary>
+        /// <param name="candidates"></param>
+        /// <returns></returns>
         public static WallCandidate FindBest(in WallCandidate[] candidates) {
             if(candidates.Length <= 0) return new();
             int bestIdx = 0;
@@ -76,16 +100,32 @@ public class TraceHelpers {
         }
     }
 
+    /// <summary>
+    /// Used specifically by character controllers for pre-collision predictions.
+    /// Advanced movement techniques like wallrunning can use this to slew the camera
+    /// before the wall is touched.
+    /// </summary>
+    /// <param name="pos">The starting position of the object</param>
+    /// <param name="displacement">The difference between the two centers of the capsule. This is calculated by (height / 2) - radius</param>
+    /// <param name="vel">The initial velocity of the object</param>
+    /// <param name="radius">The radius of the capsule</param>
+    /// <param name="layerMask">The layermask to use when casting</param>
+    /// <param name="traceDistance">The total distance of the trajectory represented as arclength in meters</param>
+    /// <param name="step">How far to step along the trajectory when casting. Smaller numbers = higher resolution</param>
+    /// <returns>A RaycastHit, or null if nothing was hit.</returns>
     public static RaycastHit? Trajectory(Vector3 pos, in Vector3 displacement, Vector3 vel, in float radius, in int layerMask = ~(1 << 8), in float traceDistance = 20f, in float step = 0.01f) {
         Vector3 dir, delta;
         float progress = 0f, stepDistance;
+        bool hit;
         while(progress < traceDistance) {
+            // note that gravity and friction are applied as constants here but that may not be the case in the cc.
+            // this is fine for this use case.
             vel = vel.ApplyGravity(40, step).ApplyFrictionXZ(0.5f * step);
             delta = vel * step;
             pos += delta;
             stepDistance = delta.magnitude;
             dir = delta.normalized;
-            bool hit = Physics.CapsuleCast(
+            hit = Physics.CapsuleCast(
                 pos + displacement, pos - displacement, radius * 0.92f,
                 dir, out RaycastHit trace, stepDistance, layerMask
             );
@@ -96,18 +136,30 @@ public class TraceHelpers {
         return null;
     }
 
-    public static bool HorizontalFan(Vector3 pos, Vector3 dir, out Vector3 avgPos, out Vector3 avgNorm, int rays = 10, float distance = 6, int layerMask = ~(1 << 8)) {
-        const float reach = 45;
+    /// <summary>
+    /// Casts a handful of rays in a pie slice shape. This is used to sample a large horizontal swath of a surface
+    /// without requiring more advanced methods that would break down when casting towards non-convex mesh colliders.
+    /// </summary>
+    /// <param name="pos">The position to cast from</param>
+    /// <param name="dir">The normalized direction to cast towards</param>
+    /// <param name="avgPos">Output - The average position of all casts that resulted in a hit</param>
+    /// <param name="avgNorm">Output - The average surface normal of all casts that resulted in a hit</param>
+    /// <param name="resolution">The number of rays to cast</param>
+    /// <param name="width">How wide (in degrees) the cast should be.</param>
+    /// <param name="distance">The distance of each cast</param>
+    /// <param name="layerMask">The layermask to use when casting</param>
+    /// <returns>true/false indicating whether or not any collider was hit by any ray during this cast</returns>
+    public static bool HorizontalFan(Vector3 pos, Vector3 dir, out Vector3 avgPos, out Vector3 avgNorm, int resolution = 10, float width = 45, float distance = 6, int layerMask = ~(1 << 8)) {
         float t, angle;
         Vector3 castNormal;
         avgPos = Vector3.zero;
         avgNorm = Vector3.zero;
-        int hits = 0;
-        for(int x = 0; x < rays; x++) {
-            t = (x / (float)rays);
-            angle = Mathf.Lerp(-reach, reach, t);
+        int hits = 0; bool hit;
+        for(int x = 0; x < resolution; x++) {
+            t = (x / (float)resolution);
+            angle = Mathf.Lerp(-width, width, t);
             castNormal = Quaternion.AngleAxis(angle, Vector3.up) * dir;
-            bool hit = Physics.Raycast(pos, castNormal, out RaycastHit trace, distance, layerMask);
+            hit = Physics.Raycast(pos, castNormal, out RaycastHit trace, distance, layerMask);
             if(!hit) continue;
             avgPos += trace.point;
             avgNorm += trace.normal;
@@ -119,7 +171,7 @@ public class TraceHelpers {
             return false;
         }
         avgPos /= hits;
-        avgNorm /= hits;
+        avgNorm = (avgNorm / hits).normalized;
         return true;
     }
 

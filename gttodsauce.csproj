@@ -2,8 +2,8 @@
 
   <PropertyGroup>
     <TargetFramework>net46</TargetFramework>
-    <AssemblyName>works.quat.gttoduf</AssemblyName>
-    <Product>gttod_uf</Product>
+    <AssemblyName>works.quat.GTTODSauce</AssemblyName>
+    <Product>gttodsauce</Product>
     <Description>ADHD</Description>
     <Version>1.0.0</Version>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
@@ -13,7 +13,7 @@
       https://nuget.bepinex.dev/v3/index.json;
       https://nuget.samboy.dev/v3/index.json
     </RestoreAdditionalProjectSources>
-    <RootNamespace>gttoduf</RootNamespace>
+    <RootNamespace>GTTODSauce</RootNamespace>
   </PropertyGroup>
 
   <ItemGroup>
@@ -34,7 +34,7 @@
   </ItemGroup>
 
   <Target Name="PostBuild" AfterTargets="PostBuildEvent" Condition="'$(Configuration)' == 'Debug'">
-    <Exec Command="copy &quot;.\bin\Debug\net46\works.quat.gttoduf.*&quot; &quot;E:\Steam\steamapps\common\Get To The Orange Door\BepInEx\scripts&quot; /Y&#xD;&#xA;" />
+    <Exec Command="copy &quot;.\bin\Debug\net46\works.quat.GTTODSauce.*&quot; &quot;E:\Steam\steamapps\common\Get To The Orange Door\BepInEx\scripts&quot; /Y&#xD;&#xA;" />
   </Target>
 
 </Project>

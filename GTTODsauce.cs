@@ -1,14 +1,14 @@
 ﻿using BepInEx;
-using gttoduf.impl;
+using GTTODSauce.impl;
 using HarmonyLib;
 using UnityEngine;
 
-namespace gttoduf;
+namespace GTTODSauce;
 
 [BepInPlugin(MyPluginInfo.PLUGIN_GUID, MyPluginInfo.PLUGIN_NAME, MyPluginInfo.PLUGIN_VERSION)]
-public class GTTODUF : BaseUnityPlugin {
+public class GTTODSauce : BaseUnityPlugin {
 
-    private static GTTODUF? _modSingleton;
+    private static GTTODSauce? _modSingleton;
     private Harmony? _harmony;
     private MovementManager? _manager;
 
@@ -19,8 +19,8 @@ public class GTTODUF : BaseUnityPlugin {
             return;
         }
         if(_harmony == null)
-            _harmony = Harmony.CreateAndPatchAll(typeof(GTTODUF), MyPluginInfo.PLUGIN_GUID);
-        else _harmony.PatchAll(typeof(GTTODUF));
+            _harmony = Harmony.CreateAndPatchAll(typeof(GTTODSauce), MyPluginInfo.PLUGIN_GUID);
+        else _harmony.PatchAll(typeof(GTTODSauce));
         Logger.LogInfo($"Loaded [{MyPluginInfo.PLUGIN_GUID} {MyPluginInfo.PLUGIN_VERSION}]");
         _modSingleton = this;
 
@@ -62,13 +62,13 @@ public class GTTODUF : BaseUnityPlugin {
     }
 
     [HarmonyPatch(typeof(ac_CharacterController), "Update"), HarmonyPrefix]
-    public static bool gttoduf_ac_CharacterController_Update(ac_CharacterController __instance) {
+    public static bool GTTODSauce_ac_CharacterController_Update(ac_CharacterController __instance) {
         _modSingleton.CreateManager(__instance).Update();
         return false;
     }
 
     [HarmonyPatch(typeof(ac_CharacterController), "FixedUpdate"), HarmonyPrefix]
-    public static bool gttoduf_ac_CharacterController_FixedUpdate(ac_CharacterController __instance) {
+    public static bool GTTODSauce_ac_CharacterController_FixedUpdate(ac_CharacterController __instance) {
         _modSingleton.CreateManager(__instance).FixedUpdate();
         if(Input.GetKeyDown(KeyCode.F4)) {
             _modSingleton.enabled = !_modSingleton.enabled;
@@ -77,20 +77,8 @@ public class GTTODUF : BaseUnityPlugin {
         return false;
     }
 
-    [HarmonyPatch(typeof(ac_CharacterController), "Start"), HarmonyPostfix]
-    public static void gttoduf_ac_CharacterController_Start(ac_CharacterController __instance) {
-        _modSingleton?._manager?.Apply();
-        __instance.ControllerUpdate();
-        __instance.UpdateBasicMovement();
-        __instance.CameraUpdate();
-        __instance.ColliderUpdate();
-        __instance.UpdateAdvancedMovement();
-        __instance.UpdateMovingPlatform();
-        _modSingleton?.Log("overridden start");
-    }
-
     [HarmonyPatch(typeof(ac_CharacterController), "LateUpdate"), HarmonyPrefix]
-    public static bool gttoduf_ac_CharacterController_LateUpdate(ac_CharacterController __instance) {
+    public static bool GTTODSauce_ac_CharacterController_LateUpdate(ac_CharacterController __instance) {
         // the mod doesn't need this
         return false;
     }

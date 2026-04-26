@@ -1,4 +1,4 @@
-# GTTOD, unfucked
+# GTTOD, with the sauce
 
 This is a BepInEx mod for Get to the Orange Door that replaces all stock character controller code with a custom, 
 unified implementation. This mod was written in the interest of improving the game and to test what I've been

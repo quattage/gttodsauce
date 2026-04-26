@@ -1,6 +1,6 @@
 using System;
 
-namespace gttoduf.impl;
+namespace GTTODSauce.impl;
 
 /**
     A stripped down version of what I wrote for my own movement - 

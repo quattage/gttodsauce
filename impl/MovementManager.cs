@@ -1,25 +1,23 @@
 
 using System;
-using System.Collections.Generic;
-using System.Drawing;
-using System.Security.Cryptography;
 using EZCameraShake;
 using UnityEngine;
 using static ac_CharacterController;
-using static gttoduf.impl.TraceHelpers;
+using static GTTODSauce.impl.TraceHelpers;
 
-namespace gttoduf.impl;
+namespace GTTODSauce.impl;
 
-public class MovementManager(GTTODUF mod, ac_CharacterController controller) {
+public class MovementManager(GTTODSauce mod, ac_CharacterController controller) {
 
     public ac_CharacterController Controller { get; private set; } = controller;
-    private GTTODUF _mod = mod;
+    private GTTODSauce _mod = mod;
 
     // replace these with MovementVariables and BodyVariables(?) where possible
     private const float _slopeAngle = 65f;
     private const float _wallAngle = 42f;
     private const float _stepHeight = 0.5f;
     private const float _dashDistance = 15f;
+    private const bool _dumpState = false;
 
     // helpers
     public Rigidbody RB => Controller.PlayerPhysics;
@@ -34,6 +32,7 @@ public class MovementManager(GTTODUF mod, ac_CharacterController controller) {
     public float Speed => _velocity.magnitude;
     public float XZSpeed => new Vector2(_velocity.x, _velocity.z).magnitude;
     public float YSpeed => (RB.position.y - _prevY) / Time.fixedDeltaTime;
+    private float _prevY;
 
     // pseudostatemachine
     public Intention Grounded = new();
@@ -45,16 +44,13 @@ public class MovementManager(GTTODUF mod, ac_CharacterController controller) {
     public bool WallrunLeft { get; private set; }
 
     // state variables
+    public bool HasAirjump { get; private set; } = true;
     private Vector3 _wishdir;
     private Vector3 _wishdirRotated;
     private Vector3 _velocity;
     private Vector3 _dashEndpoint;
-    private Vector3 _avgWallNormal;
-    private Vector3 _prevWallNormal;
     private Vector3 _cameraZ; // x = stand, y = crouch, z = impulse
-    private float _prevY;
-    private AudioSource _wallrunSounds;
-    public bool HasAirjump { get; private set; } = true;
+    private readonly WallContainer _wallState = new();
 
     // called by the mod object when the code is injected
     public void Apply() {
@@ -65,7 +61,7 @@ public class MovementManager(GTTODUF mod, ac_CharacterController controller) {
         if(wallruns != null) {
             wallruns.enabled = false;
             why?.enabled = false;
-            _wallrunSounds = wallruns.gameObject.GetComponent<AudioSource>();
+            _wallState.Sounds = wallruns.gameObject.GetComponent<AudioSource>();
         }
         if(Controller.PlayerCollider == null)
             Controller.PlayerCollider = Controller.GetComponent<CapsuleCollider>();
@@ -81,7 +77,7 @@ public class MovementManager(GTTODUF mod, ac_CharacterController controller) {
         ac_WallDetection why = playerObjects?.transform.GetComponentInChildren<ac_WallDetection>(true);
         wallruns?.enabled = true;
         why?.enabled = true;
-        _wallrunSounds = null;
+        _wallState.Sounds = null;
         Controller = null;
         _mod = null;
     }
@@ -98,22 +94,28 @@ public class MovementManager(GTTODUF mod, ac_CharacterController controller) {
 
     public void Update() {
         if(ShouldPauseUpdates()) return;
+        PatchVanillaCC();
         TryReset();
         _wishdir = VectorExtentions.MakeWishdir();
-
-        // ugh
-        Controller.XCameraRotation = Mathf.Clamp(Controller.XCameraRotation -= (Input.GetAxis("Mouse Y") + Controller.GetProcessedLookInput("Controller Y", ref Controller.verticalTimer)) * (GameManager.GM.Settings.SavedSettings.VerticalSensitivity * Controller.SensitivityModifier) * (float)((!Controller.InvertLookAxis) ? 1 : (-1)), -90, 90);
-        Controller.YCameraRotation += (Input.GetAxis("Mouse X") + Controller.GetProcessedLookInput("Controller X", ref Controller.horizontalTimer)) * (GameManager.GM.Settings.SavedSettings.HorizontalSensitivity * Controller.SensitivityModifier) * (float)((!(Controller.XCameraRotation > 180f) && !(Controller.XCameraRotation < -180f)) ? 1 : (-1));
-        Controller.CameraParent.localRotation = Quaternion.Euler(Controller.XCameraRotation, 0f, Controller.ZCameraRotation);
-        Controller.transform.rotation = Quaternion.Euler(Controller.transform.rotation.x, Controller.YCameraRotation, Controller.transform.rotation.z);
-
         _wishdirRotated = Controller.transform.rotation * _wishdir;
         Jumping.SetTryingIfNotDoing(KeyBindingManager.ActionPressed(KeyAction.Jump));
         Crouching.SetTrying(KeyBindingManager.ActionPressed(KeyAction.Crouch));
         Dashing.SetTrying(!Crouching.Expected && KeyBindingManager.ActionPressed(KeyAction.Dash));
         UpdateHeadZ(Crouching.Doing ? 1.6f : 0, Sliding ? 20f : 8f);
-        UpdateHeadSlew(Wallrunning ? -5 : 0, 12);
-        PatchVanillaCC();
+        UpdateRotation();
+    }
+
+    private void UpdateRotation(in float slewSpeed = 6f, in float magnitude = 0.2f, int clamp = 90) {
+
+        float deltaX = (Input.GetAxis("Mouse X") + Controller.GetProcessedLookInput("Controller X", ref Controller.horizontalTimer))
+            * (GameManager.GM.Settings.SavedSettings.HorizontalSensitivity * Controller.SensitivityModifier);
+
+        float deltaY = Controller.XCameraRotation -= (Input.GetAxis("Mouse Y") + Controller.GetProcessedLookInput("Controller Y", ref Controller.verticalTimer))
+            * (GameManager.GM.Settings.SavedSettings.VerticalSensitivity * Controller.SensitivityModifier) * ((!Controller.InvertLookAxis) ? 1 : (-1));
+
+        // Controller.transform.rotation = ?   <-- y rotation
+        // Controller.CameraParent.localRotation = ?  <-- x rotation and wallrun slew
+
     }
 
     public void FixedUpdate() {
@@ -139,14 +141,15 @@ public class MovementManager(GTTODUF mod, ac_CharacterController controller) {
 
         if(Grounded) MoveOnGround();
         else MoveInAir();
-
         if(Jumping.Ticks < 0) Jumping.Tick();
 
         RB.velocity = _velocity;
         Jumping.SetTrying(false);
         Crouching.SetTrying(false);
         _prevY = RB.position.y;
+        DumpState();
     }
+
 
     /// <summary>
     /// Ensures that when the character is grounded, they're actually touching the ground and basically glued to it
@@ -185,40 +188,36 @@ public class MovementManager(GTTODUF mod, ac_CharacterController controller) {
     /// </summary>
     private void InspectWalls() {
         if(Wallrunning.Doing) return;
-        if(Wallrunning.Ticks < 0) {
-            Wallrunning.Tick();
-            return;
-        }
         if(Grounded || Crouching.Expected) {
             Wallrunning.Reset();
             return;
         }
 
-        WallCandidate[] nearby = WallCandidate.Collect(CenterMass, Collider.height, Collider.radius, Controller.transform.forward, Controller.transform.right, _velocity, _wishdirRotated);
-        _mod.Log("0:" + nearby[0].Hit);
-        _mod.Log("1:" + nearby[1].Hit);
-        _mod.Log("2:" + nearby[2].Hit);
-        _mod.Log("3:" + nearby[3].Hit);
-        _mod.Log("4:" + nearby[4].Hit);
-        WallCandidate wall = WallCandidate.FindBest(nearby);
-
-        if(!wall.Hit || wall.Distance > 10) {
+        float intent = (_wishdir.magnitude * 2) + _velocity.XZ().magnitude;
+        if(intent < 0.8) {
             Wallrunning.Reset();
             return;
         }
-        _avgWallNormal = wall.NormXZ;
-        Vector3 normXZ = new Vector3(_avgWallNormal.x, 0, _avgWallNormal.z).normalized;
-        float verticalAngle = Vector3.Angle(Vector3.up, _avgWallNormal);
+
+        WallCandidate[] nearby = WallCandidate.Collect(CenterMass, Collider.height, Collider.radius, Controller.transform.forward, Controller.transform.right, _velocity, _wishdirRotated);
+        WallCandidate wall = WallCandidate.FindBest(nearby);
+        if(!wall.Hit || wall.Distance > 4 || Vector3.Dot(wall.NormXZ, _velocity.XZ().normalized) > 0) {
+            Wallrunning.Reset();
+            return;
+        }
+
+        _wallState.AverageNormal = wall.NormXZ;
+        float verticalAngle = Vector3.Angle(Vector3.up, _wallState.AverageNormal);
         if(verticalAngle < (90 - _wallAngle) || verticalAngle > (90 + _wallAngle)) {
             Wallrunning.Reset();
             return;
         }
         Quaternion look = Quaternion.Euler(0, Controller.YCameraRotation, 0);
-        float lookDiff = Vector3.Dot(normXZ, look * Vector3.forward);
+        float lookDiff = Vector3.Dot(_wallState.AverageNormal, look * Vector3.forward);
         if(lookDiff > -0.8 && lookDiff < 0.4) {
-            _avgWallNormal = normXZ;
+            _wallState.Position = wall.Trace.point;
             Wallrunning.SetTrying(true);
-            float tanDiff = Vector3.Dot(normXZ, look * Vector3.right);
+            float tanDiff = Vector3.Dot(_wallState.AverageNormal, look * Vector3.right);
             WallrunLeft = tanDiff > 0;
             return;
         }
@@ -261,6 +260,7 @@ public class MovementManager(GTTODUF mod, ac_CharacterController controller) {
         if(Crouching) _velocity = _velocity.ApplyAcceleration(_wishdirRotated, 15, 6);
         else _velocity = _velocity.ApplyAcceleration(_wishdirRotated, 35, 8);
         _velocity = _velocity.ApplyFrictionXZ(14f);
+        _wallState.AverageNormal = Vector3.zero;
     }
 
     /// <summary>
@@ -376,53 +376,43 @@ public class MovementManager(GTTODUF mod, ac_CharacterController controller) {
     private bool EvaluateWallrun() {
         if(Grounded || Grounded.Ticks > -10 || Crouching.Expected)
             return CancelWallrun();
-        bool isOnWall = TraceHelpers.HorizontalFan(CenterMass, -_avgWallNormal, out Vector3 avgPos, out _avgWallNormal, distance: Collider.radius * 4f);
-        if(!isOnWall) {
-            InspectWalls();
-            return false;
-        }
+        bool isOnWall = TraceHelpers.HorizontalFan(CenterMass, -_wallState.AverageNormal, out Vector3 avgPos, out _wallState.AverageNormal, distance: Collider.radius * 4f);
+        if(!isOnWall) return CancelWallrun();
         float offset = Vector3.Distance(CenterMass, avgPos);
         if(offset > Collider.radius * 2f) {
             InspectWalls();
-            if(!Wallrunning.Trying) {
-                Wallrunning.Reset();
-                return false;
-            }
+            if(!Wallrunning.Trying) return CancelWallrun();
         }
-        float grade = Vector2.Dot(new Vector2(_avgWallNormal.x, _avgWallNormal.z), new Vector2(_prevWallNormal.x, _prevWallNormal.z));
-        if(grade < 0.8) CancelWallrun();
+        if(_wallState.Grade < 0.8) CancelWallrun();
         if(Wallrunning.TryingButNotDoing) {
             Wallrunning.SetDoing();
             Wallrunning.ResetTicks();
             Crouching.Reset();
-            _velocity = Vector3.ProjectOnPlane(_velocity, _avgWallNormal);
+            _velocity = Vector3.ProjectOnPlane(_velocity, _wallState.AverageNormal);
             if(XZSpeed < 60) _velocity += (_velocity.normalized * 8f);
         }
+        Jumping.Reset();
         _velocity = _velocity
-            .ProjectAndPreserve(_avgWallNormal)
-            .ApplyAcceleration(Vector3.ProjectOnPlane(_wishdirRotated, _avgWallNormal), 48, 1.3f)
+            .ProjectAndPreserve(_wallState.AverageNormal)
+            .ApplyAcceleration(Vector3.ProjectOnPlane(_wishdirRotated, _wallState.AverageNormal), 48, 1.3f)
             .ApplyFrictionY(4)
             .ApplyFrictionXZ(0.1f);
-        _velocity -= _avgWallNormal * 0.0275f;
+        _velocity -= _wallState.AverageNormal * 0.0275f;
         RB.velocity = _velocity;
         Wallrunning.Tick();
-        _prevWallNormal = _avgWallNormal;
+        _wallState.PreviousNormal = _wallState.AverageNormal;
+        DumpState();
         return true;
     }
 
     private bool CancelWallrun(bool penalize = true) {
         if(Wallrunning.Ticks >= 1)
             RefundGroundedState(true);
-        Wallrunning.Reset();
-        if(penalize) Wallrunning.Tick(-15);
+        if(Wallrunning.Doing) {
+            Wallrunning.Reset();
+            if(penalize) Wallrunning.Tick(-15);
+        }
         return false;
-    }
-
-    private void UpdateHeadSlew(float strength, float speed = 12f) {
-        Vector3 leanUp = Vector3.Slerp(Vector3.up, -_avgWallNormal, Mathf.Abs(strength)) * Mathf.Sign(strength);
-        Vector3 forward = Vector3.ProjectOnPlane(Controller.CameraParent.forward, leanUp).normalized;
-        Quaternion slewRotation = Quaternion.LookRotation(forward, leanUp);
-        Controller.CameraParent.rotation = Quaternion.Slerp(Controller.CameraParent.rotation, slewRotation, Time.deltaTime * speed);
     }
 
     /// <summary>
@@ -541,10 +531,10 @@ public class MovementManager(GTTODUF mod, ac_CharacterController controller) {
             Controller.PlayerBody.Recoil(new Vector3(_wishdir.x * 0.08f, 0.03f, _wishdir.z * 0.2f), Vector3.zero, 5f, 8f);
         };
         Wallrunning.EntryTrigger += () => {
-            _wallrunSounds?.Play();
+            _wallState.Sounds?.Play();
         };
         Wallrunning.ExitTrigger += () => {
-            _wallrunSounds?.Stop();
+            _wallState.Sounds?.Stop();
         };
     }
 
@@ -576,7 +566,9 @@ public class MovementManager(GTTODUF mod, ac_CharacterController controller) {
         }
     }
 
-    private void DebugAll() {
+#pragma warning disable CS0162 
+    private void DumpState() {
+        if(!_dumpState) return;
         _mod.Log("________________________________");
         _mod.Log("Vel: " + _velocity);
         _mod.Log("XZ: " + XZSpeed + " Y: " + (Math.Abs(YSpeed) < 0.01 ? 0 : YSpeed));
@@ -587,6 +579,7 @@ public class MovementManager(GTTODUF mod, ac_CharacterController controller) {
         _mod.Log("Crouching: " + Crouching);
         _mod.Log("Sliding: " + Sliding);
         _mod.Log("Dashing: " + Dashing + " (" + Controller.CurrentDashCount + "/" + Controller.DashCount + ")");
-        _mod.Log("Wallrunning: " + Wallrunning + ", (" + (!Wallrunning.Expected ? "---" : (WallrunLeft ? "<--" : "-->")) + ")");
+        _mod.Log("Wallrunning: " + Wallrunning + ", (" + (!Wallrunning.Expected ? "---" : (WallrunLeft ? "<--" : "-->")) + "), (:: " + _wallState.AverageNormal + ")");
     }
+#pragma warning restore CS0162 
 }
