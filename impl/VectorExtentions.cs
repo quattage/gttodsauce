@@ -1,6 +1,7 @@
 
 
 
+using System;
 using UnityEngine;
 
 namespace GTTODSauce.impl;
@@ -29,10 +30,6 @@ public static class VectorExtentions {
         return vector;
     }
 
-    public static Vector3 XZ(this in Vector3 vector) {
-        return new Vector3(vector.x, 0, vector.z);
-    }
-
     /// <summary>
     /// Damps the provided velocity vector by an aribtrary strength amount and
     /// returns a modified copy. The damping strength is scaled by fixed delta
@@ -54,7 +51,7 @@ public static class VectorExtentions {
     /// it only affects the Y component of the input vector.
     /// </summary>
     public static Vector3 ApplyFrictionY(this in Vector3 vector, in float strength) {
-        float speed = vector.y;
+        float speed = Math.Abs(vector.y);
         if(speed < 0.0005f) return new Vector3(vector.x, 0, vector.z);
         float friction = speed * Time.fixedDeltaTime * strength;
         float diff = Mathf.Max(0, speed - friction);
@@ -69,6 +66,14 @@ public static class VectorExtentions {
         float mag = vector.magnitude;
         Vector3 output = Vector3.ProjectOnPlane(vector, plane);
         return output.normalized * mag;
+    }
+
+    public static Vector3 XZ(this in Vector3 vector) {
+        return new Vector3(vector.x, 0, vector.z);
+    }
+
+    public static Vector3 Absolute(this in Vector3 vector) {
+        return new Vector3(Mathf.Abs(vector.x), Mathf.Abs(vector.y), Mathf.Abs(vector.z));
     }
 
     /// <summary>

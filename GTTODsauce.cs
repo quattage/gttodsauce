@@ -77,6 +77,17 @@ public class GTTODSauce : BaseUnityPlugin {
         return false;
     }
 
+    [HarmonyPatch(typeof(ac_CharacterController), "Start"), HarmonyPostfix]
+    public static void gttoduf_ac_CharacterController_Start(ac_CharacterController __instance) {
+        _modSingleton?._manager?.Apply();
+        __instance.ControllerUpdate();
+        __instance.UpdateBasicMovement();
+        __instance.CameraUpdate();
+        __instance.ColliderUpdate();
+        __instance.UpdateAdvancedMovement();
+        __instance.UpdateMovingPlatform();
+    }
+
     [HarmonyPatch(typeof(ac_CharacterController), "LateUpdate"), HarmonyPrefix]
     public static bool GTTODSauce_ac_CharacterController_LateUpdate(ac_CharacterController __instance) {
         // the mod doesn't need this

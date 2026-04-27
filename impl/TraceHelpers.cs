@@ -27,9 +27,9 @@ public class TraceHelpers {
             }
             Hit = true;
             this.Trace = trace.Value;
-            NormXZ = trace.Value.normal.XZ();
+            NormXZ = Trace.normal.XZ();
             _vars = new(
-                Vector3.Angle(NormXZ, Vector3.up),
+                Vector3.Angle(Vector3.up, Trace.normal),
                 Vector3.Dot(forwardLook, NormXZ),
                 Vector3.Dot(wishdir, NormXZ),
                 Vector3.Distance(pos, trace.Value.point)
@@ -40,7 +40,7 @@ public class TraceHelpers {
             Hit = Physics.CapsuleCast(pos + disp, pos - disp, rad, norm, out Trace, 10f, mask);
             NormXZ = Trace.normal.XZ();
             _vars = new(
-                Vector3.Angle(NormXZ, Vector3.up),
+                Vector3.Angle(Trace.normal, Vector3.up),
                 Vector3.Dot(forwardLook, NormXZ),
                 Vector3.Dot(norm, NormXZ),
                 Vector3.Distance(pos, Trace.point)
@@ -54,7 +54,10 @@ public class TraceHelpers {
         }
 
         /// <summary>
-        /// Creates 5 WallCandidate objects by casting capsules in various directions.
+        /// Creates 5 WallCandidate objects by casting capsules in various directions. Casts
+        /// 1. Along the trajectory of the current velocity, which is useful for predicting walls before they are touched.
+        /// 2. Along the current wishdir projected to the left/right, which is useful for capturing subtle strafing movements 
+        /// 3. Straight forward, which is useful for detecting walls that the player is looking directly at but may not be moving towards (e.g. if the player is standing still or moving very slowly).
         /// </summary>
         /// <param name="pos">The initial position to cast from</param>
         /// <param name="height">The height of the capsule to cast</param>
@@ -72,8 +75,6 @@ public class TraceHelpers {
                 WallCandidate.OfTrajectory(pos, displace, velocity, forwardLook, wishdir, rad, mask),
                 new(pos, displace, Vector3.ProjectOnPlane(wishdir, forwardLook).normalized, forwardLook, rad, mask),
                 new(pos, displace, velocity.normalized, forwardLook, rad, mask),
-                new(pos, displace, tangentLook, forwardLook, rad, mask),
-                new(pos, displace, -tangentLook, forwardLook, rad, mask),
             ];
         }
 
@@ -98,6 +99,54 @@ public class TraceHelpers {
             }
             return candidates[bestIdx];
         }
+
+        /// <summary>
+        /// Produces a formatted string containing all walls in the provided
+        /// array. Useful for debug logging.
+        /// </summary>
+        /// <param name="candidates"></param>
+        /// <returns></returns>
+        public static string Summarize(in WallCandidate[] candidates, WallCandidate? best = null) {
+            string s = "::\n";
+            for(int x = 0; x < candidates.Length; x++) {
+                WallCandidate c = candidates[x];
+                s += $"Wall {x}: {(c.Hit ? c.NormXZ : "n/a")}\n";
+            }
+            if(best != null) s += $"Best: {(best.Value.Hit ? best.Value.NormXZ : "n/a")}\n";
+            return s;
+        }
+
+        /// <summary>
+        /// Checks to see whether this wall is relevant to the current movement scenario. 
+        /// The player must not be moving away the wall, and they must be within a reasonable distance of it. 
+        /// </summary>
+        /// <param name="wall"></param>
+        /// <param name="velocity"></param>
+        /// <returns></returns>
+        public bool IsRelevent(Vector3 velocity) {
+            return (Hit && Distance < 4 && Vector3.Dot(NormXZ, velocity.XZ().normalized) <= 0);
+        }
+
+        /// <summary>
+        /// Checks this wall to see if the angle is steep enough to be considered a wall. 
+        /// </summary>
+        /// <param name="wall"></param>
+        /// <param name="wallAngle"></param>
+        /// <returns></returns>
+        public bool IsVertical(float wallAngle = 35) {
+            return (UpAngle >= (90 - wallAngle) && UpAngle <= (90 + wallAngle));
+        }
+
+        /// <summary>
+        /// Checks this wall to see the player is generally looking towards it. This is used to filter out walls
+        /// behind the player that are technically valid but would cause the player frustration as they
+        /// may unintentionally attach to them.
+        /// </summary>
+        /// <param name="wall"></param>
+        /// <returns></returns>
+        public bool IsInView() {
+            return (LookDiff > -0.8 && LookDiff < 0.8);
+        }
     }
 
     /// <summary>
@@ -119,7 +168,8 @@ public class TraceHelpers {
         bool hit;
         while(progress < traceDistance) {
             // note that gravity and friction are applied as constants here but that may not be the case in the cc.
-            // this is fine for this use case.
+            // this is fine for this use case since getting an absolutely perfect velocity prediction isn't super important.
+            // I'd do this better by having this step through the actual movement code rather than pretend to do so here.
             vel = vel.ApplyGravity(40, step).ApplyFrictionXZ(0.5f * step);
             delta = vel * step;
             pos += delta;
@@ -139,6 +189,7 @@ public class TraceHelpers {
     /// <summary>
     /// Casts a handful of rays in a pie slice shape. This is used to sample a large horizontal swath of a surface
     /// without requiring more advanced methods that would break down when casting towards non-convex mesh colliders.
+    /// This method can also smooth out transitions between individual colliders.
     /// </summary>
     /// <param name="pos">The position to cast from</param>
     /// <param name="dir">The normalized direction to cast towards</param>
@@ -167,7 +218,7 @@ public class TraceHelpers {
         }
         if(hits <= 0) {
             avgPos = pos;
-            avgNorm = dir;
+            avgNorm = -dir;
             return false;
         }
         avgPos /= hits;
