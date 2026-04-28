@@ -53,30 +53,55 @@ public class MovementManager(GTTODSauce mod, ac_CharacterController controller) 
 
     // called by the mod object when the code is injected
     public void Apply() {
+        Update();
+        FixedUpdate();
         _cameraZ = new(Controller.CameraParent.localPosition.y, Controller.CameraParent.localPosition.y - 1f, 1);
         if(Controller.PlayerCollider == null)
             Controller.PlayerCollider = Controller.GetComponent<CapsuleCollider>();
         WallStuff.SetupTransforms(Controller.transform, Controller.CameraParent);
-        Controller.ColliderUpdate();
+
+        // this bit is REALLY important for some reason
+        Collider.radius = Controller.BodyVariables.ColliderRadius / ((Controller.CharacterGroundState != GroundState.Onwall) ? 1 : 2) * Controller.BodyVariables.SizeModifier;
+        ResizeCollider(Controller.BodyVariables.ColliderHeight * Controller.BodyVariables.SizeModifier);
+
         ConfigureEvents();
         _prevY = RB.position.y;
+        _mod.Log("Applied GTTODSauce MovementManager");
     }
 
     // called by the mod object before its destroyed to clean things up
     public void Revert() {
         WallStuff.TakedownTransforms(Controller.transform, Controller.CameraParent);
         Controller = null;
+        _mod.Log("Reverted GTTODSauce MovementManager");
         _mod = null;
     }
 
     /// <summary>
-    /// Callable by other movement objects (like people cannons, monkey bars, poles, dash points, etc)
+    /// Callable by other movement objects (like land cannons, monkey bars, poles, dash points, etc)
     /// to reset airjumps, dashes, and sliding frames.
     /// </summary>
     public void RefundGroundedState(bool includeDashes = false) {
         HasAirjump = true;
         if(Sliding.Ticks > 0) Sliding.ResetTicks();
         if(includeDashes) Controller.CurrentDashCount = Controller.DashCount;
+    }
+
+    public void ApplyImpulse(Vector3 impulse, bool preserve = true, bool zeroY = false) {
+        if(zeroY && _velocity.y < 0) _velocity = new(_velocity.x, 0, _velocity.z);
+        if(preserve) _velocity += impulse;
+        else _velocity = impulse;
+        RB.velocity = _velocity;
+    }
+
+    public void EnsureAirtime() {
+        Grounded.Reset();
+        Grounded.Tick(-15);
+        Dashing.Reset();
+        Dashing.Tick(-30);
+        CancelWallrun();
+        Crouching.Reset();
+        Jumping.Reset();
     }
 
     public void Update() {
@@ -92,7 +117,7 @@ public class MovementManager(GTTODSauce mod, ac_CharacterController controller) 
         UpdateRotation();
     }
 
-    private void UpdateRotation(float tilt = 15f, int clamp = 90) {
+    private void UpdateRotation(int clamp = 90) {
 
         float deltaX = (Input.GetAxis("Mouse X") + Controller.GetProcessedLookInput("Controller X", ref Controller.horizontalTimer))
             * (GameManager.GM.Settings.SavedSettings.HorizontalSensitivity * Controller.SensitivityModifier);
@@ -184,14 +209,16 @@ public class MovementManager(GTTODSauce mod, ac_CharacterController controller) 
     /// </summary>
     private void InspectWalls() {
         if(Wallrunning.Doing) return;
-        if(Grounded || Crouching.Expected) {
+        if(Grounded || Crouching.Expected || Jumping.Ticks < -30) {
             Wallrunning.Reset();
+            WallStuff.Reset();
             return;
         }
 
         float intent = (_wishdir.magnitude * 2) + _velocity.XZ().magnitude;
         if(intent < 0.8) {
             Wallrunning.Reset();
+            WallStuff.Reset();
             return;
         }
 
@@ -263,10 +290,13 @@ public class MovementManager(GTTODSauce mod, ac_CharacterController controller) 
             Grounded.ResetTicks();
         else Grounded.Tick(-1);
         if(Grounded.Ticks < -25 && Jumping.Trying && HasAirjump) {
-            _velocity.y = 23;
+            if(_velocity.y < 23)
+                _velocity.y = 23;
+            else _velocity.y += 16;
             Jumping.SetDoing(true);
             Jumping.SetTrying(false);
             Grounded.SetTryingAndDoing(false);
+            Jumping.Tick(-40);
             HasAirjump = false;
         }
         if(Crouching.TryingButNotDoing && Crouching.Ticks == 0) {
@@ -343,12 +373,16 @@ public class MovementManager(GTTODSauce mod, ac_CharacterController controller) 
             } else _velocity = new Vector3(0, 0, 0);
             RefundGroundedState();
             Controller.CurrentDashCount--;
+            Dashing.SetDoing();
         }
         // do dashing
         Controller.PlayerPhysics.isKinematic = true;
         Dashing.Tick();
-        Dashing.SetDoing();
         RB.position = Vector3.MoveTowards(RB.position, _dashEndpoint, Time.fixedDeltaTime * 250);
+        if(!Dashing.Doing) {
+            Controller.PlayerPhysics.isKinematic = false;
+            return false;
+        }
         if(Vector3.Distance(RB.position, _dashEndpoint) <= Collider.radius) {
             Dashing.SetTryingAndDoing(false);
             Dashing.ResetTicks();
@@ -362,18 +396,29 @@ public class MovementManager(GTTODSauce mod, ac_CharacterController controller) 
 
     private bool EvaluateWallrun() {
         bool isOnWall = TraceHelpers.HorizontalFan(CenterMass, -WallStuff.AverageNormal, out WallStuff.Position, out WallStuff.AverageNormal, distance: Collider.radius * 4f);
-        if(Grounded || Grounded.Ticks > -10 || Crouching.Expected || !isOnWall) return CancelWallrun();
+        if(Grounded || Crouching.Expected || !isOnWall) return CancelWallrun();
         float offset = Vector3.Distance(CenterMass, WallStuff.Position);
         if(offset > Collider.radius * 4f) return CancelWallrun();
         if(Wallrunning.TryingButNotDoing) {
             Wallrunning.SetDoing();
             Wallrunning.ResetTicks();
             Crouching.Reset();
+            Grounded.ResetTicks();
             _velocity = Vector3.ProjectOnPlane(_velocity, WallStuff.AverageNormal);
             if(XZSpeed < 60) _velocity += (_velocity.XZ().normalized * 8f);
         }
         if(Wallrunning.Ticks > 2 && WallStuff.Grade < 0.984f) return CancelWallrun();
-        Jumping.Reset();
+        if(Wallrunning.Ticks > 2 && Jumping.TryingButNotDoing && Jumping.Ticks >= 0) {
+            Jumping.SetDoing();
+            Jumping.SetTrying(false);
+            Jumping.Tick(-40);
+            Vector3 kick = (Vector3.ProjectOnPlane(_wishdirRotated, WallStuff.AverageNormal) * 2) + (WallStuff.AverageNormal * 15);
+            _velocity += kick;
+            _velocity.y = 24;
+            CancelWallrun(false);
+            return false;
+        } else if(Jumping.Ticks < 0) Jumping.Tick();
+
         _velocity = _velocity
             .ProjectAndPreserve(WallStuff.AverageNormal)
             .ApplyAcceleration(Vector3.ProjectOnPlane(_wishdirRotated, WallStuff.AverageNormal), 86, 2f)
@@ -489,8 +534,10 @@ public class MovementManager(GTTODSauce mod, ac_CharacterController controller) 
                 JumpMovementShake(7f);
                 Controller.PlayGlobalSoundEffect(0);
             } else {
+                if(Wallrunning)
+                    Controller.PlayGlobalSoundEffect(0);
+                else Controller.PlayGlobalSoundEffect(1);
                 JumpMovementShake(15f);
-                Controller.PlayGlobalSoundEffect(1);
             }
         };
         Sliding.EntryTrigger += () => {
@@ -517,6 +564,9 @@ public class MovementManager(GTTODSauce mod, ac_CharacterController controller) 
         };
         Wallrunning.EntryTrigger += () => {
             WallStuff.Sounds?.Play();
+            JumpMovementShake(6.5f);
+            Controller.PlayerBody.Recoil(new Vector3(0f, 0.15f, -0.1f), Vector3.zero, 8f, 18f);
+
         };
         Wallrunning.ExitTrigger += () => {
             WallStuff.Sounds?.Stop();
@@ -530,7 +580,7 @@ public class MovementManager(GTTODSauce mod, ac_CharacterController controller) 
         CameraShaker.Instance.ResetCamera();
     }
 
-    private void JumpMovementShake(in float mag, in float inTime = 0.2f) {
+    public void JumpMovementShake(in float mag, in float inTime = 0.2f) {
         CameraShaker.Instance.DefaultPosInfluence = Vector3.zero;
         CameraShaker.Instance.DefaultRotInfluence = new Vector3(-10, 0, 0);
         CameraShaker.Instance.ShakeOnce(mag, 0.7f, inTime, 1f);

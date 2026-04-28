@@ -71,9 +71,9 @@ public class WallContainer {
         Position = Vector3.zero;
     }
 
-    public Vector3 GetUpBasis(float strength = 0.15f, float speed = 2f) {
+    public Vector3 GetUpBasis(float strength = 0.1f) {
         Vector3 current = Vector3.Slerp(Vector3.up, _smoothNormal, strength);
-        _upBasis = Vector3.MoveTowards(_upBasis, current, Time.deltaTime * speed);
+        _upBasis = Vector3.MoveTowards(_upBasis, current, Time.deltaTime * 1.4f);
         return _upBasis;
     }
 }

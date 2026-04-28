@@ -16,17 +16,13 @@ To fix these issues, I've completely bypassed all stock movement code belonging 
 my own discrete kinematic controller.
 
 ## what it do:
-- Reworks wallrunning to be significantly more predictable
-- Makes it easier to retain velocity after airdashing
-- Allows the controller to predict when wallruns are about to happen to tilt the camera ahead of time
-- Fixes lots of jitter issues caused by rigidbody/velocity fighting
+- Completely replaces all vanilla character controller code, replacing rigidbody velocity/friction with kinematic stuff where possible
+- Ties the modded code into vanilla stuff like landcannons and monkey bars so that they behave predictibly
+- Implements wall scanning and trajectory prediction to allow vaulting and wallrunning to respond to the presence of surfaces before they're touched
 - Re-implements gamefeel stuff to be easier on the eyes (less camera/weapon sway overall)
 
 
 ## whats left (todo)
-- Actually implement the wallrun step (the code only contains the prediction & heuristics right now)
 - Implement vaulting with a new timing system so that accidental vaults don't consume all your speed
-- Inject some code into other movement objects (like monkey bars) to refund grounded state
 - Centralize important movement variables so that they can be adjusted via commands and/or the plugin config file
-- Poke around more in the ac_CharacterController class to restore some functions that are probably broken with the mod active
 - Cache the state of the ac_CharacterController instance so that it can be restored to allow the mod to be toggled at runtime
