@@ -6,17 +6,19 @@ experimenting with in an actual in-game setting.
 
 ## A smoother GTTOD chracter controller
 
-The stock character controller in GTTOD is implemented using rigidbody physics. Friciton, drag, and mass calculations 
-performed by Unity rigidbodies tend to crush any amount of nuanced control you have over how exactly they move, no
-matter how deliberate you are with your implementation. GTTOD's controller attempts to skirt around this issue
-by selectively enabling/disabling kinematic mode on the player's rigidbody depending on the movement state, as well
-as having an entirely separate controller just for handling wallruns.
+Unity rigidbodies do not like to cooporate when you try to feed them finely tuned
+velocity vectors, (as per their nature) and there's frighteningly little information on the 
+internet about solving this problem. GTTOD attempts to skirt around this issue by doing a couple
+things - namely by toggling kinematic mode on the fly, and by using some complex logic in its 
+character controller to counteract the effects of rigidbody friction and mass.
 
-To fix these issues, I've completely bypassed all stock movement code belonging to doorguy and replaced it with
-my own discrete kinematic controller.
+I've completely bypassed all stock movement code belonging to doorguy and replaced it with my own discrete 
+kinematic controller.
 
 ## what it do:
-- Completely replaces all vanilla character controller code, replacing rigidbody velocity/friction with kinematic stuff where possible
+- Acts as a drop-in replacement for all movement code in GTTOD
+- Replaces rigidbody-based velocity and friction calculations with custom kinematic code
+- Restores wallkicks and introduces new wall dash behaviour
 - Ties the modded code into vanilla stuff like landcannons and monkey bars so that they behave predictibly
 - Implements wall scanning and trajectory prediction to allow vaulting and wallrunning to respond to the presence of surfaces before they're touched
 - Re-implements gamefeel stuff to be easier on the eyes (less camera/weapon sway overall)

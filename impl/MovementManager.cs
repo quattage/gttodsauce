@@ -17,6 +17,8 @@ public class MovementManager(GTTODSauce mod, ac_CharacterController controller) 
     private const float _wallAngle = 42f;
     private const float _stepHeight = 0.5f;
     private const float _dashDistance = 15f;
+    private const byte _gracePeriod = 15;
+    private const byte _wallSearchDistance = 8;
     private const bool _dumpState = false;
 
     // helpers
@@ -77,16 +79,29 @@ public class MovementManager(GTTODSauce mod, ac_CharacterController controller) 
         _mod = null;
     }
 
-    /// <summary>
-    /// Callable by other movement objects (like land cannons, monkey bars, poles, dash points, etc)
-    /// to reset airjumps, dashes, and sliding frames.
-    /// </summary>
-    public void RefundGroundedState(bool includeDashes = false) {
-        HasAirjump = true;
-        if(Sliding.Ticks > 0) Sliding.ResetTicks();
-        if(includeDashes) Controller.CurrentDashCount = Controller.DashCount;
+    public void RefundDashes() {
+        Controller.CurrentDashCount = Controller.DashCount;
     }
 
+    public void RefundAirjump() {
+        HasAirjump = true;
+    }
+
+    public void RefundSliding() {
+        if(Sliding.Ticks > 0) Sliding.ResetTicks();
+    }
+
+    public void RefundWallruns(bool forgiving) {
+        WallStuff.Reset(forgiving);
+    }
+
+    /// <summary>
+    /// Applies a sudden velocity change. Callable by other movement objects (like land cannons)
+    /// to throw the player in some arbitrary direction
+    /// </summary>
+    /// <param name="impulse">The actual velocity</param>
+    /// <param name="preserve">If false, the velocity of this CC will be replaced</param>
+    /// <param name="zeroY">Whether or not to set the Y velocity to zero before applying the impulse</param>
     public void ApplyImpulse(Vector3 impulse, bool preserve = true, bool zeroY = false) {
         if(zeroY && _velocity.y < 0) _velocity = new(_velocity.x, 0, _velocity.z);
         if(preserve) _velocity += impulse;
@@ -94,11 +109,15 @@ public class MovementManager(GTTODSauce mod, ac_CharacterController controller) 
         RB.velocity = _velocity;
     }
 
+    /// <summary>
+    /// Useful to guarantee that the CC isn't grounded so that any impulses you apply
+    /// don't get swallowed by ground snapping or dashing
+    /// </summary>
     public void EnsureAirtime() {
         Grounded.Reset();
-        Grounded.Tick(-15);
+        Grounded.Tick(-_gracePeriod);
         Dashing.Reset();
-        Dashing.Tick(-30);
+        Dashing.Tick(-_gracePeriod * 2);
         CancelWallrun();
         Crouching.Reset();
         Jumping.Reset();
@@ -110,11 +129,12 @@ public class MovementManager(GTTODSauce mod, ac_CharacterController controller) 
         TryReset();
         _wishdir = VectorExtentions.MakeWishdir();
         _wishdirRotated = Controller.transform.rotation * _wishdir;
-        Jumping.SetTryingIfNotDoing(KeyBindingManager.ActionPressed(KeyAction.Jump));
+        if(!Jumping.Trying) Jumping.SetTrying(RisingEdgeJump());
         Crouching.SetTrying(KeyBindingManager.ActionPressed(KeyAction.Crouch));
         Dashing.SetTrying(!Crouching.Expected && KeyBindingManager.ActionPressed(KeyAction.Dash));
         UpdateHeadZ(Crouching.Doing ? 1.6f : 0, Sliding ? 20f : 8f);
         UpdateRotation();
+        Controller.ControllerUpdate();
     }
 
     private void UpdateRotation(int clamp = 90) {
@@ -128,7 +148,7 @@ public class MovementManager(GTTODSauce mod, ac_CharacterController controller) 
         Controller.XCameraRotation = Mathf.Clamp(Controller.XCameraRotation -= deltaY, -clamp, clamp);
         Controller.YCameraRotation += deltaX;
 
-        Vector3 localUp = WallStuff.GetUpBasis();
+        Vector3 localUp = WallStuff.GetUpBasis(CenterMass, _wallSearchDistance, overrideCondition: Crouching.Doing);
         Vector3 forward = Vector3.ProjectOnPlane(Quaternion.Euler(0, Controller.YCameraRotation, 0) * Vector3.forward, localUp).normalized;
         Quaternion basis = Quaternion.LookRotation(forward, localUp);
         Quaternion targetRot = basis * Quaternion.Euler(Controller.XCameraRotation, 0, Controller.ZCameraRotation);
@@ -140,12 +160,10 @@ public class MovementManager(GTTODSauce mod, ac_CharacterController controller) 
     }
 
     public void FixedUpdate() {
+
         if(ShouldPauseUpdates()) return;
-        /**
-            By ingesting the velocity from the previous rigidbody update, we can basically just pretend 
-            that we're doing the kinematic collisions since the velocity is being altered by the rigidbody
-            when collision events are handled by it.
-        **/
+        /// ingesting the velocity from the previous rigidbody update cuz the 
+        /// rigidbody is dynamic ("booooo dynamic rigidbody" SHUT UP!!!)
         if(!RB.isKinematic) _velocity = RB.velocity;
 
         FixupRigidbody();
@@ -165,10 +183,10 @@ public class MovementManager(GTTODSauce mod, ac_CharacterController controller) 
         if(Jumping.Ticks < 0) Jumping.Tick();
 
         RB.velocity = _velocity;
-        Jumping.SetTrying(false);
-        Crouching.SetTrying(false);
         _prevY = RB.position.y;
         DumpState();
+        Jumping.SetTrying(false);
+        Crouching.SetTrying(false);
     }
 
 
@@ -183,15 +201,21 @@ public class MovementManager(GTTODSauce mod, ac_CharacterController controller) 
     /// </summary>
     private void InspectGround() {
         if((Wallrunning.Ticks < 0 || !Grounded && YSpeed > 0.1f)) return;
-        bool hit = Physics.BoxCast(CenterMass, FloorExtents, Vector3.down, out Controller.GroundCheck, Quaternion.identity, FloorCastDistance);
+        bool hit = Physics.BoxCast(CenterMass, FloorExtents, Vector3.down, out Controller.GroundCheck, Quaternion.identity, FloorCastDistance, ~(1 << 8));
         float distance = Mathf.Abs(RB.position.y - BottomSurface.y);
         if(!hit || Controller.GroundCheck.distance > distance || Vector3.Angle(Vector3.up, Controller.GroundCheck.normal) > _slopeAngle) {
             Grounded.SetDoing(false);
             return;
         }
+        if(!Grounded) {
+            RefundDashes();
+            RefundAirjump();
+            RefundSliding();
+            RefundWallruns(true);
+        }
         Grounded.SetDoing(true);
         if(Jumping.Expected) return;
-        if(Grounded.Ticks > -100 && Grounded.Ticks < 0) return;
+        if(Grounded.Ticks > -_gracePeriod * 6 && Grounded.Ticks < 0) return;
         Vector3 diff = Controller.GroundCheck.point - BottomSurface;
         // we project the positional offset along the gravity normal (in this case, just down) to remove any 
         // adverse translation when hitting mesh colliders or slightly sloped surfaces, since the ground
@@ -209,16 +233,14 @@ public class MovementManager(GTTODSauce mod, ac_CharacterController controller) 
     /// </summary>
     private void InspectWalls() {
         if(Wallrunning.Doing) return;
-        if(Grounded || Crouching.Expected || Jumping.Ticks < -30) {
-            Wallrunning.Reset();
-            WallStuff.Reset();
+        if(Grounded || Jumping.Ticks < -_gracePeriod * 2) {
+            CancelWallrun();
             return;
         }
 
         float intent = (_wishdir.magnitude * 2) + _velocity.XZ().magnitude;
         if(intent < 0.8) {
-            Wallrunning.Reset();
-            WallStuff.Reset();
+            CancelWallrun();
             return;
         }
 
@@ -226,13 +248,15 @@ public class MovementManager(GTTODSauce mod, ac_CharacterController controller) 
         WallCandidate[] nearby = WallCandidate.Collect(
             CenterMass, Collider.height, Collider.radius,
             look * Vector3.forward,
-            Controller.transform.right, _velocity, _wishdirRotated
+            Controller.transform.right, _velocity
         );
 
         WallCandidate wall = WallCandidate.FindBest(nearby);
-        if(!wall.IsRelevent(_velocity) || !wall.IsVertical(_wallAngle) || !wall.IsInView()) {
-            Wallrunning.Reset();
-            WallStuff.Reset();
+        if(!wall.IsRelevent(_velocity, _wallSearchDistance)
+            || !wall.IsVertical(_wallAngle)
+            || !wall.IsInView()
+            || !wall.IsOpposingPrevious(WallStuff)) {
+            CancelWallrun();
             return;
         }
         WallStuff.Prime(wall, look);
@@ -245,14 +269,13 @@ public class MovementManager(GTTODSauce mod, ac_CharacterController controller) 
     /// faster so that it feels more controllable than moving in the air.
     /// </summary>
     private void MoveOnGround() {
-        HasAirjump = true;
         Jumping.SetDoing(false);
         if(Grounded.Ticks < 0)
             Grounded.ResetTicks();
         else Grounded.Tick();
         if(Jumping.TryingButNotDoing && Jumping.Ticks >= 0) {
             _velocity.y = 20; Jumping.SetDoing(true);
-            Jumping.Tick(-40);
+            Jumping.Tick((int)(-_gracePeriod * 0.2));
             Jumping.SetTrying(false);
             Grounded.SetTryingAndDoing(false);
             return;
@@ -262,7 +285,7 @@ public class MovementManager(GTTODSauce mod, ac_CharacterController controller) 
             ResizeCollider(Controller.BodyVariables.ColliderHeight / 2.4f * Controller.BodyVariables.SizeModifier);
         } else if(Crouching.DoingButNotTrying && HasHeadroom()) {
             Crouching.SetDoing(false);
-            Crouching.Tick(-15);
+            Crouching.Tick(-_gracePeriod);
             ResizeCollider(Controller.BodyVariables.ColliderHeight * Controller.BodyVariables.SizeModifier);
         } else if(Crouching.Ticks < 0) Crouching.Tick();
         if(Sliding && Sliding.Ticks >= 0) {
@@ -289,20 +312,20 @@ public class MovementManager(GTTODSauce mod, ac_CharacterController controller) 
         if(Grounded.Ticks > 0)
             Grounded.ResetTicks();
         else Grounded.Tick(-1);
-        if(Grounded.Ticks < -25 && Jumping.Trying && HasAirjump) {
+        if(Jumping.Trying && HasAirjump && Jumping.Ticks >= 0) {
             if(_velocity.y < 23)
                 _velocity.y = 23;
             else _velocity.y += 16;
             Jumping.SetDoing(true);
             Jumping.SetTrying(false);
             Grounded.SetTryingAndDoing(false);
-            Jumping.Tick(-40);
+            Jumping.Tick(-_gracePeriod * 3);
             HasAirjump = false;
         }
         if(Crouching.TryingButNotDoing && Crouching.Ticks == 0) {
             Crouching.SetDoing();
             ResizeCollider(Controller.BodyVariables.ColliderHeight / 2.4f * Controller.BodyVariables.SizeModifier);
-            Crouching.Tick(-30);
+            Crouching.Tick(-_gracePeriod * 2);
         } else if(Crouching.DoingButNotTrying && HasHeadroom()) {
             Crouching.SetDoing(false);
             ResizeCollider(Controller.BodyVariables.ColliderHeight * Controller.BodyVariables.SizeModifier);
@@ -329,11 +352,11 @@ public class MovementManager(GTTODSauce mod, ac_CharacterController controller) 
         else if(YSpeed < -0.5f)
             _velocity = _velocity.ApplyFrictionXZ(0.01f);
         else _velocity = _velocity.ApplyFrictionXZ(0.7f);
-        if(Sliding.Ticks < 4 && XZSpeed < 60)
+        if(Sliding.Ticks < (_gracePeriod / 3f) && XZSpeed < 60)
             _velocity += (_velocity.normalized * 8f);
         if(!Crouching.Expected || Speed < 15f) {
             Sliding.Reset();
-            Sliding.Tick(-30);
+            Sliding.Tick(-_gracePeriod * 2);
         }
     }
 
@@ -344,12 +367,13 @@ public class MovementManager(GTTODSauce mod, ac_CharacterController controller) 
     /// and their velocity is adjusted to point in the dash direction.
     /// </summary>
     private bool EvaluateDash() {
+        if(Wallrunning) return false;
         // prepare dash target
         if(Dashing.TryingButNotDoing) {
-            if(Grounded.Ticks > -15 || Controller.CurrentDashCount <= 0) {
+            if(Grounded.Ticks > -_gracePeriod || Controller.CurrentDashCount <= 0) {
                 Dashing.SetTryingAndDoing(false);
                 Dashing.ResetTicks();
-                Dashing.Tick(-15);
+                Dashing.Tick(-_gracePeriod);
                 return false;
             }
             DefaultForward();
@@ -361,7 +385,7 @@ public class MovementManager(GTTODSauce mod, ac_CharacterController controller) 
                 if(Controller.DashCheck.distance < Collider.radius * 4f) {
                     Dashing.SetTryingAndDoing(false);
                     Dashing.ResetTicks();
-                    Dashing.Tick(-15);
+                    Dashing.Tick(-_gracePeriod);
                     return false;
                 }
                 _dashEndpoint = Vector3.Lerp(CenterMass, Controller.DashCheck.point, 0.87f);
@@ -371,7 +395,8 @@ public class MovementManager(GTTODSauce mod, ac_CharacterController controller) 
                 _velocity = _wishdirRotated * mag;
                 if(XZSpeed < 60) _velocity += (_velocity.normalized * 8f);
             } else _velocity = new Vector3(0, 0, 0);
-            RefundGroundedState();
+            RefundAirjump();
+            RefundWallruns(true);
             Controller.CurrentDashCount--;
             Dashing.SetDoing();
         }
@@ -386,7 +411,7 @@ public class MovementManager(GTTODSauce mod, ac_CharacterController controller) 
         if(Vector3.Distance(RB.position, _dashEndpoint) <= Collider.radius) {
             Dashing.SetTryingAndDoing(false);
             Dashing.ResetTicks();
-            Dashing.Tick(-15);
+            Dashing.Tick(-_gracePeriod);
             Controller.PlayerPhysics.isKinematic = false;
             _velocity.y = 0;
             RB.velocity = _velocity;
@@ -395,33 +420,91 @@ public class MovementManager(GTTODSauce mod, ac_CharacterController controller) 
     }
 
     private bool EvaluateWallrun() {
-        bool isOnWall = TraceHelpers.HorizontalFan(CenterMass, -WallStuff.AverageNormal, out WallStuff.Position, out WallStuff.AverageNormal, distance: Collider.radius * 4f);
-        if(Grounded || Crouching.Expected || !isOnWall) return CancelWallrun();
+        bool isOnWall = TraceHelpers.HorizontalFan(CenterMass, -WallStuff.AverageNormal,
+            WallStuff.Position, out WallStuff.Position, out WallStuff.AverageNormal,
+            distance: Collider.radius * 4f
+        );
+
+        if(Grounded || !isOnWall) {
+            if(Wallrunning.Ticks > 2) {
+                RefundAirjump();
+                RefundDashes();
+            }
+            return CancelWallrun();
+        }
+
+        // wallkicks
+        if(Crouching.Expected) {
+            if(Wallrunning.Ticks < 10) {
+                if(Jumping.Trying) {
+                    Controller.PlayGlobalSoundEffect(4);
+                    Jumping.Tick(-_gracePeriod);
+                    _velocity += (WallStuff.AverageNormal * 10) + (Controller.transform.forward * 20);
+                    _velocity.y = Mathf.Max(25, _velocity.y);
+                    RefundAirjump();
+                    RefundDashes();
+                    RefundWallruns(true);
+                    return CancelWallrun(false);
+                }
+            } else {
+                EnsureAirtime();
+                RefundWallruns(false);
+                Wallrunning.Tick(-_gracePeriod * 2);
+                return false;
+            }
+            return false;
+        }
+
+        // wall discrimination and first tick
         float offset = Vector3.Distance(CenterMass, WallStuff.Position);
         if(offset > Collider.radius * 4f) return CancelWallrun();
         if(Wallrunning.TryingButNotDoing) {
             Wallrunning.SetDoing();
             Wallrunning.ResetTicks();
-            Crouching.Reset();
             Grounded.ResetTicks();
             _velocity = Vector3.ProjectOnPlane(_velocity, WallStuff.AverageNormal);
             if(XZSpeed < 60) _velocity += (_velocity.XZ().normalized * 8f);
         }
-        if(Wallrunning.Ticks > 2 && WallStuff.Grade < 0.984f) return CancelWallrun();
+
+        Vector3 wishdirWall = Vector3.ProjectOnPlane(_wishdirRotated, WallStuff.AverageNormal);
+        if(Wallrunning.Ticks > 2 && WallStuff.Grade < 0.96f) return CancelWallrun();
+
+        // walljumps
         if(Wallrunning.Ticks > 2 && Jumping.TryingButNotDoing && Jumping.Ticks >= 0) {
             Jumping.SetDoing();
             Jumping.SetTrying(false);
-            Jumping.Tick(-40);
-            Vector3 kick = (Vector3.ProjectOnPlane(_wishdirRotated, WallStuff.AverageNormal) * 2) + (WallStuff.AverageNormal * 15);
+            Jumping.Tick(-_gracePeriod);
+            Vector3 kick = (wishdirWall * 2) + (WallStuff.AverageNormal * 10);
             _velocity += kick;
-            _velocity.y = 24;
-            CancelWallrun(false);
-            return false;
+            _velocity.y = 18;
+            RefundAirjump();
+            RefundDashes(); ;
+            return CancelWallrun(false);
         } else if(Jumping.Ticks < 0) Jumping.Tick();
 
+        // walldashes
+        if(WallStuff.IsLookingAway(_mod, Controller.transform)
+            && Wallrunning.Ticks > 2
+            && Dashing.TryingButNotDoing
+            && Dashing.Ticks >= 0) {
+            Dashing.SetDoing();
+            Dashing.SetTrying(false);
+            float mag = Mathf.Max(50, _velocity.magnitude);
+            Vector3 kick = Controller.CameraParent.transform.forward;
+            _velocity.y = 0;
+            _velocity = kick * mag;
+            EnsureAirtime();
+            RefundAirjump();
+            RefundDashes();
+            RefundWallruns(true);
+            Controller.CurrentDashCount--;
+            return false;
+        }
+
+        // wallrunning
         _velocity = _velocity
             .ProjectAndPreserve(WallStuff.AverageNormal)
-            .ApplyAcceleration(Vector3.ProjectOnPlane(_wishdirRotated, WallStuff.AverageNormal), 86, 2f)
+            .ApplyAcceleration(wishdirWall.XZ(), 86, 2f)
             .ApplyFrictionY(5f)
             .ApplyFrictionXZ(3f);
         if(offset > Collider.radius)
@@ -435,12 +518,10 @@ public class MovementManager(GTTODSauce mod, ac_CharacterController controller) 
     }
 
     private bool CancelWallrun(bool penalize = true) {
-        if(Wallrunning.Ticks >= 1)
-            RefundGroundedState(true);
         if(Wallrunning.Doing) {
             Wallrunning.Reset();
             WallStuff.Reset();
-            if(penalize) Wallrunning.Tick(-15);
+            if(penalize) Wallrunning.Tick(-_gracePeriod);
         }
         return false;
     }
@@ -473,8 +554,9 @@ public class MovementManager(GTTODSauce mod, ac_CharacterController controller) 
     private void PatchVanillaCC() {
         Controller.Crouching = Crouching.Doing;
         Controller.Walking = Grounded && _wishdir.magnitude > 0.1;
-        if(Grounded) Controller.CharacterGroundState = GroundState.SteadyGround;
-        else {
+        if(Grounded) {
+            Controller.CharacterGroundState = Sliding ? GroundState.Sliding : GroundState.SteadyGround;
+        } else {
             if(Wallrunning) Controller.CharacterGroundState = GroundState.Climbing;
             else Controller.CharacterGroundState = GroundState.InAir;
         }
@@ -524,17 +606,16 @@ public class MovementManager(GTTODSauce mod, ac_CharacterController controller) 
 
     private void ConfigureEvents() {
         Grounded.EntryTrigger += () => {
-            if(Grounded.Ticks > -50) return;
+            if(Grounded.Ticks > -_gracePeriod * 3) return;
             JumpMovementShake(6.5f);
             Controller.PlayGlobalSoundEffect(2);
-            RefundGroundedState(true);
         };
         Jumping.EntryTrigger += () => {
             if(Grounded) {
                 JumpMovementShake(7f);
                 Controller.PlayGlobalSoundEffect(0);
             } else {
-                if(Wallrunning)
+                if(Wallrunning.Doing)
                     Controller.PlayGlobalSoundEffect(0);
                 else Controller.PlayGlobalSoundEffect(1);
                 JumpMovementShake(15f);
@@ -599,6 +680,17 @@ public class MovementManager(GTTODSauce mod, ac_CharacterController controller) 
             RB.velocity = Vector3.zero;
             Controller.transform.position = new Vector3(0, 0, 0);
         }
+    }
+
+    private bool RisingEdgeJump() {
+        foreach(KeyBindingInput bindInput in KeyBindingManager.BindInputs) {
+            if(bindInput.Action != KeyAction.Jump) continue;
+            if(Input.GetKeyDown(bindInput.Code)) {
+                KeyBindingManager.UsingGamepad = false;
+                return true;
+            }
+        }
+        return false;
     }
 
 #pragma warning disable CS0162

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using UnityEngine;
 
 namespace GTTODSauce.impl;
@@ -37,7 +38,7 @@ public class TraceHelpers {
         }
 
         public WallCandidate(in Vector3 pos, in Vector3 disp, in Vector3 norm, in Vector3 forwardLook, in float rad, in int mask = ~(1 << 8)) {
-            Hit = Physics.CapsuleCast(pos + disp, pos - disp, rad, norm, out Trace, 10f, mask);
+            Hit = Physics.CapsuleCast(pos + disp, pos - disp, rad, norm, out Trace, 20f, mask);
             NormXZ = Trace.normal.XZ();
             _vars = new(
                 Vector3.Angle(Trace.normal, Vector3.up),
@@ -68,7 +69,7 @@ public class TraceHelpers {
         /// <param name="wishdir">The current attempted moving direction of the parent caster on the XZ plane</param>
         /// <param name="mask">The layermask to use when casting</param>
         /// <returns>A list of WallCandidates in no particular order.</returns>
-        public static WallCandidate[] Collect(in Vector3 pos, in float height, in float radius, in Vector3 forwardLook, in Vector3 tangentLook, in Vector3 velocity, in Vector3 wishdir, int mask = ~(1 << 8)) {
+        public static WallCandidate[] Collect(in Vector3 pos, in float height, in float radius, in Vector3 forwardLook, in Vector3 velocity, in Vector3 wishdir, int mask = ~(1 << 8)) {
             Vector3 displace = new(0, (height / 2) - radius, 0);
             float rad = radius * 0.7f;
             return [
@@ -123,8 +124,8 @@ public class TraceHelpers {
         /// <param name="wall"></param>
         /// <param name="velocity"></param>
         /// <returns></returns>
-        public bool IsRelevent(Vector3 velocity) {
-            return (Hit && Distance < 4 && Vector3.Dot(NormXZ, velocity.XZ().normalized) <= 0);
+        public bool IsRelevent(Vector3 velocity, float distance) {
+            return (Hit && Distance < distance && Vector3.Dot(NormXZ, velocity.XZ().normalized) <= 0);
         }
 
         /// <summary>
@@ -146,6 +147,12 @@ public class TraceHelpers {
         /// <returns></returns>
         public bool IsInView() {
             return (LookDiff > -0.8 && LookDiff < 0.8);
+        }
+
+        public bool IsOpposingPrevious(WallContainer wall) {
+            if(wall.PreviousWallTouch.magnitude < 0.1) return true;
+            float fac = Vector3.Dot(wall.PreviousWallTouch, Trace.normal);
+            return fac < 0.8;
         }
     }
 
@@ -200,7 +207,7 @@ public class TraceHelpers {
     /// <param name="distance">The distance of each cast</param>
     /// <param name="layerMask">The layermask to use when casting</param>
     /// <returns>true/false indicating whether or not any collider was hit by any ray during this cast</returns>
-    public static bool HorizontalFan(Vector3 pos, Vector3 dir, out Vector3 avgPos, out Vector3 avgNorm, int resolution = 10, float width = 45, float distance = 6, int layerMask = ~(1 << 8)) {
+    public static bool HorizontalFan(Vector3 pos, Vector3 dir, Vector3 defaultPos, out Vector3 avgPos, out Vector3 avgNorm, int resolution = 10, float width = 45, float distance = 6, int layerMask = ~(1 << 8)) {
         float t, angle;
         Vector3 castNormal;
         avgPos = Vector3.zero;
@@ -217,7 +224,7 @@ public class TraceHelpers {
             hits++;
         }
         if(hits <= 0) {
-            avgPos = pos;
+            avgPos = defaultPos;
             avgNorm = -dir;
             return false;
         }

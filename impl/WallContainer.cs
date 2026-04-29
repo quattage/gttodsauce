@@ -1,4 +1,5 @@
 using System;
+using System.Runtime.InteropServices;
 using UnityEngine;
 using static GTTODSauce.impl.TraceHelpers;
 
@@ -10,17 +11,13 @@ public class WallContainer {
     public AudioSource Sounds { get; private set; }
 
     public Vector3 Position = Vector3.zero;
-    private Vector3 _smoothNormal = Vector3.zero;
     private Vector3 _upBasis;
 
     public Vector3 AverageNormal = Vector3.zero;
     public Vector3 PreviousNormal = Vector3.zero;
-    public Vector3 SmoothedNormal {
-        get {
-            _smoothNormal = Vector3.Lerp(_smoothNormal, AverageNormal, Time.fixedDeltaTime * 10).normalized;
-            return _smoothNormal;
-        }
-    }
+
+    public Vector3 PreviousWallTouch = Vector3.zero;
+
     private bool _left;
 
     public bool IsLeft {
@@ -56,7 +53,7 @@ public class WallContainer {
 
     public void Prime(WallCandidate candidiate, Quaternion look) {
         AverageNormal = candidiate.NormXZ;
-        _smoothNormal = AverageNormal;
+        PreviousWallTouch = AverageNormal;
         if(PreviousNormal.magnitude < 0.1f)
             PreviousNormal = AverageNormal;
         Position = candidiate.Trace.point;
@@ -64,16 +61,28 @@ public class WallContainer {
         IsLeft = tanDiff > 0;
     }
 
-
-    public void Reset() {
-        _smoothNormal = Vector3.zero;
-        AverageNormal = Vector3.zero;
-        Position = Vector3.zero;
+    public bool IsLookingAway(GTTODSauce sauce, Transform cameraParent) {
+        float lookDiff = Vector3.Dot(cameraParent.transform.forward, AverageNormal);
+        return lookDiff > 0.2f;
     }
 
-    public Vector3 GetUpBasis(float strength = 0.1f) {
-        Vector3 current = Vector3.Slerp(Vector3.up, _smoothNormal, strength);
-        _upBasis = Vector3.MoveTowards(_upBasis, current, Time.deltaTime * 1.4f);
+    public void Reset(bool resetTouch = false) {
+        if(resetTouch) PreviousWallTouch = Vector3.zero;
+        AverageNormal = Vector3.zero;
+    }
+
+    public Vector3 GetUpBasis(Vector3 pos, float contactDistance, float strength = 0.1f, bool overrideCondition = false) {
+        if(AverageNormal.magnitude < 0.1f || overrideCondition) {
+            _upBasis = Vector3.MoveTowards(_upBasis, Vector3.up, Time.deltaTime);
+            return _upBasis;
+        }
+        Vector3 wallDifference = pos - Position;
+        float diffLength = wallDifference.magnitude;
+        float offsetPercent = 1 - (diffLength / (contactDistance));
+
+        Vector3 current = Vector3.Slerp(Vector3.up, AverageNormal, strength * offsetPercent);
+        Vector3 newUpBasis = Vector3.MoveTowards(_upBasis, current, Time.deltaTime * 0.9f);
+        _upBasis = Vector3.MoveTowards(_upBasis, newUpBasis, Time.deltaTime * 0.9f);
         return _upBasis;
     }
 }

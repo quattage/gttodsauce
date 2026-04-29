@@ -94,7 +94,9 @@ public class GTTODSauce : BaseUnityPlugin {
     public static bool GTTODSauce_LandCannon_Launch(LandCannon __instance) {
         _modSingleton._manager.EnsureAirtime();
         _modSingleton._manager.JumpMovementShake(10f);
-        _modSingleton._manager.RefundGroundedState(true);
+        _modSingleton._manager.RefundAirjump();
+        _modSingleton._manager.RefundDashes();
+        _modSingleton._manager.RefundWallruns(true);
         _modSingleton._manager.Grounded.SetTryingAndDoing(false);
         _modSingleton._manager.ApplyImpulse(
             __instance.transform.up * __instance.UpForce +
@@ -105,6 +107,8 @@ public class GTTODSauce : BaseUnityPlugin {
         __instance.StartCoroutine(__instance.LaunchCooldown());
         return false;
     }
+
+    // miscellaneous patches just to remove camera shake from areas that I can't control in the character controller itself
 
     [HarmonyPatch(typeof(GTTOD_PlayerBody), "Footstep"), HarmonyPrefix]
     public static bool GTTODSauce_GTTOD_PlayerBody_Footstep(GTTOD_PlayerBody __instance) {
@@ -130,5 +134,36 @@ public class GTTODSauce : BaseUnityPlugin {
         return false;
     }
 
+    [HarmonyPatch(typeof(PlayerEffects), "PlaySuddenStop"), HarmonyPrefix]
+    public static bool GTTODSauce_GTTOD_PlayerEffects_PlaySuddenStop(PlayerEffects __instance) {
+        __instance.SuddenStop.GetComponent<AudioRange>().PlayLocalAudioRange();
+        __instance.SuddenStop.Play();
+        return false;
+    }
 
+
+    // these rigidbody patches fix the issue where any amount of external force will throw
+    // doorguy so far out of the map that you softlock
+
+    [HarmonyPatch(typeof(Rigidbody), "AddForce", [typeof(Vector3), typeof(ForceMode)]), HarmonyPrefix]
+    public static bool GTTODSauce_Rigidbody_AddForce_A(Rigidbody __instance, Vector3 force, ForceMode mode) {
+        if(!__instance.Equals(_modSingleton?._manager?.RB)) return true;
+        _modSingleton._manager.ApplyImpulse(force * 0.001f, true, false);
+        return false;
+    }
+
+    [HarmonyPatch(typeof(Rigidbody), "AddForce", [typeof(Vector3)]), HarmonyPrefix]
+    public static bool GTTODSauce_Rigidbody_AddForce_B(Rigidbody __instance, Vector3 force) {
+        return GTTODSauce_Rigidbody_AddForce_A(__instance, force, ForceMode.Force);
+    }
+
+    [HarmonyPatch(typeof(Rigidbody), "AddForce", [typeof(float), typeof(float), typeof(float), typeof(ForceMode)]), HarmonyPrefix]
+    public static bool GTTODSauce_Rigidbody_AddForce_C(Rigidbody __instance, float x, float y, float z, ForceMode mode) {
+        return GTTODSauce_Rigidbody_AddForce_A(__instance, new Vector3(x, y, z), ForceMode.Force);
+    }
+
+    [HarmonyPatch(typeof(Rigidbody), "AddForce", [typeof(float), typeof(float), typeof(float), typeof(ForceMode)]), HarmonyPrefix]
+    public static bool GTTODSauce_Rigidbody_AddForce_D(Rigidbody __instance, float x, float y, float z) {
+        return GTTODSauce_Rigidbody_AddForce_C(__instance, x, y, z, ForceMode.Force);
+    }
 }
