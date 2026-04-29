@@ -38,6 +38,7 @@ public class MovementManager(GTTODSauce mod, ac_CharacterController controller) 
 
     // pseudostatemachine
     public Intention Grounded = new();
+    public bool Swimming = false;
     public Intention Jumping = new();
     public Intention Sliding = new();
     public Intention Crouching = new();
@@ -137,7 +138,7 @@ public class MovementManager(GTTODSauce mod, ac_CharacterController controller) 
         Controller.ControllerUpdate();
     }
 
-    private void UpdateRotation(int clamp = 90) {
+    private void UpdateRotation(float clamp = 89.9f) {
 
         float deltaX = (Input.GetAxis("Mouse X") + Controller.GetProcessedLookInput("Controller X", ref Controller.horizontalTimer))
             * (GameManager.GM.Settings.SavedSettings.HorizontalSensitivity * Controller.SensitivityModifier);
@@ -160,11 +161,19 @@ public class MovementManager(GTTODSauce mod, ac_CharacterController controller) 
     }
 
     public void FixedUpdate() {
-
         if(ShouldPauseUpdates()) return;
         /// ingesting the velocity from the previous rigidbody update cuz the 
         /// rigidbody is dynamic ("booooo dynamic rigidbody" SHUT UP!!!)
         if(!RB.isKinematic) _velocity = RB.velocity;
+
+        if(Swimming) {
+            MoveInWater();
+            RB.velocity = _velocity;
+            _prevY = RB.position.y;
+            Jumping.SetTrying(false);
+            Crouching.SetTrying(false);
+            return;
+        }
 
         FixupRigidbody();
         InspectWalls();
@@ -337,6 +346,18 @@ public class MovementManager(GTTODSauce mod, ac_CharacterController controller) 
         _velocity = _velocity.ApplyGravity();
     }
 
+    private void MoveInWater() {
+        float forwardMagnitude = _wishdir.z;
+        Vector3 forward = Controller.CameraParent.forward * forwardMagnitude;
+        Vector3 sideways = Controller.transform.rotation * new Vector3(_wishdir.x, 0, _wishdir.z);
+        Vector3 combined = new(sideways.x + forward.x, forward.y, sideways.z + forward.z);
+        _velocity =
+            _velocity.ApplyAcceleration(combined, 40, 4)
+            .ApplyFriction(3);
+        RefundAirjump();
+        RefundDashes();
+    }
+
     /// <summary>
     /// Significantly reduces friction and acceleration so that the player's
     /// velocity is less controllable. Slopes will accelerate the player as a
@@ -376,7 +397,10 @@ public class MovementManager(GTTODSauce mod, ac_CharacterController controller) 
                 Dashing.Tick(-_gracePeriod);
                 return false;
             }
-            DefaultForward();
+            if(_wishdir.magnitude < 0.3f) {
+                _wishdir = new(0, 0, 1);
+                _wishdirRotated = Controller.transform.rotation * _wishdir;
+            } else _wishdirRotated = _wishdirRotated.normalized;
             bool hit = Physics.BoxCast(CenterMass - _wishdirRotated,
                 FloorExtents * 0.7f, _wishdirRotated, out Controller.DashCheck,
                 Quaternion.identity, _dashDistance, PlayerMask
@@ -419,6 +443,13 @@ public class MovementManager(GTTODSauce mod, ac_CharacterController controller) 
         return true;
     }
 
+
+    /// <summary>
+    /// Wallruns are handled similarly to walking on the ground. When the wallrun is executed,
+    /// we project the velocity vector along the wall normal and selectively apply friction and
+    /// gravity to allow the character to stick to the wall naturally.
+    /// </summary>
+    /// <returns></returns>
     private bool EvaluateWallrun() {
         bool isOnWall = TraceHelpers.HorizontalFan(CenterMass, -WallStuff.AverageNormal,
             WallStuff.Position, out WallStuff.Position, out WallStuff.AverageNormal,
@@ -426,7 +457,7 @@ public class MovementManager(GTTODSauce mod, ac_CharacterController controller) 
         );
 
         if(Grounded || !isOnWall) {
-            if(Wallrunning.Ticks > 2) {
+            if(Wallrunning.Ticks > 1) {
                 RefundAirjump();
                 RefundDashes();
             }
@@ -435,7 +466,7 @@ public class MovementManager(GTTODSauce mod, ac_CharacterController controller) 
 
         // wallkicks
         if(Crouching.Expected) {
-            if(Wallrunning.Ticks < 10) {
+            if(Wallrunning.Ticks < 6) {
                 if(Jumping.Trying) {
                     Controller.PlayGlobalSoundEffect(4);
                     Jumping.Tick(-_gracePeriod);
@@ -449,7 +480,9 @@ public class MovementManager(GTTODSauce mod, ac_CharacterController controller) 
             } else {
                 EnsureAirtime();
                 RefundWallruns(false);
-                Wallrunning.Tick(-_gracePeriod * 2);
+                RefundDashes();
+                RefundAirjump();
+                Wallrunning.Tick(-_gracePeriod);
                 return false;
             }
             return false;
@@ -457,7 +490,11 @@ public class MovementManager(GTTODSauce mod, ac_CharacterController controller) 
 
         // wall discrimination and first tick
         float offset = Vector3.Distance(CenterMass, WallStuff.Position);
-        if(offset > Collider.radius * 4f) return CancelWallrun();
+        if(offset > Collider.radius * 3f) {
+            RefundAirjump();
+            RefundDashes();
+            return CancelWallrun();
+        }
         if(Wallrunning.TryingButNotDoing) {
             Wallrunning.SetDoing();
             Wallrunning.ResetTicks();
@@ -467,7 +504,11 @@ public class MovementManager(GTTODSauce mod, ac_CharacterController controller) 
         }
 
         Vector3 wishdirWall = Vector3.ProjectOnPlane(_wishdirRotated, WallStuff.AverageNormal);
-        if(Wallrunning.Ticks > 2 && WallStuff.Grade < 0.96f) return CancelWallrun();
+        if(Wallrunning.Ticks > 2 && WallStuff.Grade < 0.96f) {
+            RefundAirjump();
+            RefundDashes();
+            return CancelWallrun();
+        }
 
         // walljumps
         if(Wallrunning.Ticks > 2 && Jumping.TryingButNotDoing && Jumping.Ticks >= 0) {
@@ -557,9 +598,26 @@ public class MovementManager(GTTODSauce mod, ac_CharacterController controller) 
         if(Grounded) {
             Controller.CharacterGroundState = Sliding ? GroundState.Sliding : GroundState.SteadyGround;
         } else {
+            if(ApplySwimming()) return;
             if(Wallrunning) Controller.CharacterGroundState = GroundState.Climbing;
             else Controller.CharacterGroundState = GroundState.InAir;
         }
+    }
+
+    private bool ApplySwimming() {
+        if(!Swimming) return false;
+        Controller.CharacterGroundState = GroundState.Swimming;
+        if(_velocity.magnitude < 0.1) {
+            Controller.CharacterSwimState = SwimState.TreadingWater;
+            return true;
+        }
+        Controller.CharacterSwimState = ((_wishdir.z > 0f) ? SwimState.SwimmingForward
+            : ((_wishdir.z < 0f) ? SwimState.SwimmingBackwards : ((_wishdir.x > 0f) ? SwimState.SwimmingRight
+            : ((_wishdir.x < 0f) ? SwimState.SwimmingLeft
+            : ((_wishdir.y > 0f) ? SwimState.SwimmingUp
+            : ((_wishdir.y < 0f) ? SwimState.SwimmingDown
+            : SwimState.TreadingWater))))));
+        return true;
     }
 
     /// <summary>

@@ -90,6 +90,12 @@ public class GTTODSauce : BaseUnityPlugin {
         return false;
     }
 
+    [HarmonyPatch(typeof(ac_CharacterController), "Swim", typeof(bool)), HarmonyPrefix]
+    public static bool GTTODSauce_ac_CharacterController_Swim(ac_CharacterController __instance, bool SwimmingState) {
+        _modSingleton._manager.Swimming = SwimmingState && __instance.Movement.CanSwim;
+        return true;
+    }
+
     [HarmonyPatch(typeof(LandCannon), "Launch"), HarmonyPrefix]
     public static bool GTTODSauce_LandCannon_Launch(LandCannon __instance) {
         _modSingleton._manager.EnsureAirtime();
@@ -107,6 +113,15 @@ public class GTTODSauce : BaseUnityPlugin {
         __instance.StartCoroutine(__instance.LaunchCooldown());
         return false;
     }
+
+    [HarmonyPatch(typeof(GTTOD_BalancePole), "LateUpdate"), HarmonyPostfix]
+    public static void GTTODSauce_BalancePole_LateUpdate(GTTOD_BalancePole __instance) {
+        if(!__instance.Launching) return;
+        _modSingleton?._manager?.RefundAirjump();
+        _modSingleton?._manager?.RefundDashes();
+    }
+
+
 
     // miscellaneous patches just to remove camera shake from areas that I can't control in the character controller itself
 

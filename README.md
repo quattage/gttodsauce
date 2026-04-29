@@ -1,8 +1,7 @@
 # GTTOD, with the sauce
 
-This is a BepInEx mod for Get to the Orange Door that replaces all stock character controller code with a custom, 
-unified implementation. This mod was written in the interest of improving the game and to test what I've been
-experimenting with in an actual in-game setting.
+A BepInEx mod for Get to the Orange Door that replaces all stock character controller code with a custom, 
+unified implementation. 
 
 ## A smoother GTTOD chracter controller
 
@@ -20,7 +19,7 @@ kinematic controller.
 - Replaces rigidbody-based velocity and friction calculations with custom kinematic code
 - Restores wallkicks and introduces new wall dash behaviour
 - Ties the modded code into vanilla stuff like landcannons and monkey bars so that they behave predictibly
-- Implements wall scanning and trajectory prediction to allow vaulting and wallrunning to respond to the presence of surfaces before they're touched
+- Implements wall scanning and trajectory prediction to allow wallrunning to respond to the presence of surfaces before they're touched
 - Re-implements gamefeel stuff to be easier on the eyes (less camera/weapon sway overall)
 
 
