@@ -166,4 +166,27 @@ public class GTTODSauce : BaseUnityPlugin {
     public static bool GTTODSauce_Rigidbody_AddForce_D(Rigidbody __instance, float x, float y, float z) {
         return GTTODSauce_Rigidbody_AddForce_C(__instance, x, y, z, ForceMode.Force);
     }
+
+    [HarmonyPatch(typeof(Rigidbody), "AddExplosionForce", [typeof(float), typeof(Vector3), typeof(float), typeof(float), typeof(ForceMode)]), HarmonyPrefix]
+    public static bool GTTODSauce_Rigidbody_AddExplosionForce_A(Rigidbody __instance, float explosionForce, Vector3 explosionPosition, float explosionRadius, float upwardsModifier, ForceMode mode) {
+        if(!__instance.Equals(_modSingleton?._manager?.RB)) return true;
+        MovementManager body = _modSingleton._manager;
+        if(body == null) return false;
+        Vector3 forceDir = (body.CenterMass - explosionPosition);
+        float distance = forceDir.magnitude;
+        forceDir.y += upwardsModifier;
+        forceDir = (forceDir.normalized / Mathf.Max(0.1f, distance)) * explosionForce;
+        body.ApplyImpulse(forceDir.normalized, true, false);
+        return false;
+    }
+
+    [HarmonyPatch(typeof(Rigidbody), "AddExplosionForce", [typeof(float), typeof(Vector3), typeof(float), typeof(float)]), HarmonyPrefix]
+    public static bool GTTODSauce_Rigidbody_AddExplosionForce_B(Rigidbody __instance, float explosionForce, Vector3 explosionPosition, float explosionRadius, float upwardsModifier) {
+        return GTTODSauce_Rigidbody_AddExplosionForce_A(__instance, explosionForce, explosionPosition, explosionRadius, upwardsModifier, ForceMode.Force);
+    }
+
+    [HarmonyPatch(typeof(Rigidbody), "AddExplosionForce", [typeof(float), typeof(Vector3), typeof(float)]), HarmonyPrefix]
+    public static bool GTTODSauce_Rigidbody_AddExplosionForce_C(Rigidbody __instance, float explosionForce, Vector3 explosionPosition, float explosionRadius) {
+        return GTTODSauce_Rigidbody_AddExplosionForce_A(__instance, explosionForce, explosionPosition, explosionRadius, 0, ForceMode.Force);
+    }
 }

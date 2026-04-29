@@ -24,7 +24,7 @@ public class MovementManager(GTTODSauce mod, ac_CharacterController controller) 
     // helpers
     public Rigidbody RB => Controller.PlayerPhysics;
     public CapsuleCollider Collider => Controller.PlayerCollider;
-    public Vector3 CenterMass => Collider.transform.position + Collider.center;
+    public Vector3 CenterMass => Collider == null ? Vector3.zero : (Collider.transform.position + Collider.center);
     public Vector3 BottomSurface => CenterMass + new Vector3(0, -Collider.height / 1.9f, 0);
     public Vector3 TopSurface => CenterMass + new Vector3(0, Collider.height / 2f, 0);
     public Vector3 FloorExtents => new(Collider.radius, Collider.radius, Collider.radius);
@@ -501,7 +501,7 @@ public class MovementManager(GTTODSauce mod, ac_CharacterController controller) 
             return false;
         }
 
-        // wallrunning
+        // wallruns
         _velocity = _velocity
             .ProjectAndPreserve(WallStuff.AverageNormal)
             .ApplyAcceleration(wishdirWall.XZ(), 86, 2f)

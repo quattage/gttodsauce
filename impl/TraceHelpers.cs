@@ -173,7 +173,10 @@ public class TraceHelpers {
         Vector3 dir, delta;
         float progress = 0f, stepDistance;
         bool hit;
+        int iter = 0;
         while(progress < traceDistance) {
+            if(iter > 255) return null;
+            iter++;
             // note that gravity and friction are applied as constants here but that may not be the case in the cc.
             // this is fine for this use case since getting an absolutely perfect velocity prediction isn't super important.
             // I'd do this better by having this step through the actual movement code rather than pretend to do so here.
