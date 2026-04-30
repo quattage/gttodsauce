@@ -48,6 +48,7 @@ public class MovementManager(GTTODSauce mod, ac_CharacterController controller) 
     // state variables
     public readonly WallContainer WallStuff = new();
     public bool HasAirjump { get; private set; } = true;
+    private byte _wallKicks;
     private Vector3 _wishdir;
     private Vector3 _wishdirRotated;
     private Vector3 _velocity;
@@ -94,6 +95,10 @@ public class MovementManager(GTTODSauce mod, ac_CharacterController controller) 
 
     public void RefundWallruns(bool forgiving) {
         WallStuff.Reset(forgiving);
+    }
+
+    public void RefundWallkicks() {
+        _wallKicks = 3;
     }
 
     /// <summary>
@@ -221,6 +226,7 @@ public class MovementManager(GTTODSauce mod, ac_CharacterController controller) 
             RefundAirjump();
             RefundSliding();
             RefundWallruns(true);
+            RefundWallkicks();
         }
         Grounded.SetDoing(true);
         if(Jumping.Expected) return;
@@ -467,7 +473,7 @@ public class MovementManager(GTTODSauce mod, ac_CharacterController controller) 
         // wallkicks
         if(Crouching.Expected) {
             if(Wallrunning.Ticks < 6) {
-                if(Jumping.Trying) {
+                if(Jumping.Trying && _wallKicks > 0 && Jumping.Ticks >= 0) {
                     Controller.PlayGlobalSoundEffect(4);
                     Jumping.Tick(-_gracePeriod);
                     _velocity += (WallStuff.AverageNormal * 10) + (Controller.transform.forward * 20);
@@ -475,6 +481,7 @@ public class MovementManager(GTTODSauce mod, ac_CharacterController controller) 
                     RefundAirjump();
                     RefundDashes();
                     RefundWallruns(true);
+                    _wallKicks--;
                     return CancelWallrun(false);
                 }
             } else {

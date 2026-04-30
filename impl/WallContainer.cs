@@ -15,6 +15,7 @@ public class WallContainer {
 
     public Vector3 AverageNormal = Vector3.zero;
     public Vector3 PreviousNormal = Vector3.zero;
+    public float AttachPercent = 1;
 
     public Vector3 PreviousWallTouch = Vector3.zero;
 
@@ -69,6 +70,7 @@ public class WallContainer {
     public void Reset(bool resetTouch = false) {
         if(resetTouch) PreviousWallTouch = Vector3.zero;
         AverageNormal = Vector3.zero;
+        AttachPercent = 1;
     }
 
     public Vector3 GetUpBasis(Vector3 pos, float contactDistance, float strength = 0.1f, bool overrideCondition = false) {
@@ -81,8 +83,8 @@ public class WallContainer {
         float offsetPercent = 1 - (diffLength / (contactDistance));
 
         Vector3 current = Vector3.Slerp(Vector3.up, AverageNormal, strength * offsetPercent);
-        Vector3 newUpBasis = Vector3.MoveTowards(_upBasis, current, Time.deltaTime * 0.9f);
-        _upBasis = Vector3.MoveTowards(_upBasis, newUpBasis, Time.deltaTime * 0.9f);
+        Vector3 newUpBasis = Vector3.MoveTowards(_upBasis, current, Time.deltaTime * 0.8f);
+        _upBasis = Vector3.MoveTowards(_upBasis, newUpBasis, Time.deltaTime * 0.8f);
         return _upBasis;
     }
 }

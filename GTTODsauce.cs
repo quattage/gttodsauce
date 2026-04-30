@@ -1,6 +1,4 @@
-﻿using System;
-using BepInEx;
-using EZCameraShake;
+﻿using BepInEx;
 using GTTODSauce.impl;
 using HarmonyLib;
 using UnityEngine;
