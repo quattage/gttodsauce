@@ -60,27 +60,25 @@ public class MovementManager {
         Controller = controller;
         _cameraZ = new(Controller.CameraParent.localPosition.y, Controller.CameraParent.localPosition.y - 1f, 1);
         WallStuff.SetupTransforms(Controller.transform, Controller.CameraParent);
-
         // this bit is REALLY important for some reason
         Collider.radius = Controller.BodyVariables.ColliderRadius / ((Controller.CharacterGroundState != GroundState.Onwall) ? 1 : 2) * Controller.BodyVariables.SizeModifier;
         ResizeCollider(Controller.BodyVariables.ColliderHeight * Controller.BodyVariables.SizeModifier);
-
-        ConfigureEvents();
         _prevY = RB.position.y;
+        ConfigureEvents();
         _mod.Log("Applied GTTODSauce MovementManager");
     }
 
     public void Revert() {
         WallStuff.TakedownTransforms(Controller.transform, Controller.CameraParent);
         RB.mass = 1;
-        _mod.Log("Reverted GTTODSauce MovementManager");
-        _mod = null;
         Grounded.Unsubscribe();
         Jumping.Unsubscribe();
         Sliding.Unsubscribe();
         Crouching.Unsubscribe();
         Dashing.Unsubscribe();
         Wallrunning.Unsubscribe();
+        _mod.Log("Reverted GTTODSauce MovementManager");
+        _mod = null;
     }
 
     public void RefundDashes() {

@@ -41,14 +41,6 @@ public class GTTODSauce : BaseUnityPlugin {
         Logger.LogInfo(message);
     }
 
-    public void LogDebug(string message) {
-        Logger.LogDebug(message);
-    }
-
-    public void LogError(string message) {
-        Logger.LogError(message);
-    }
-
     public void Toggle(ac_CharacterController controller) {
         Applied.SetDoing(!Applied.Doing);
         if(!Applied) {
@@ -56,7 +48,6 @@ public class GTTODSauce : BaseUnityPlugin {
             controller.ActivateCharacter();
         } else {
             controller.ActivateCharacter();
-            Log("Toggling on: " + (_manager == null) + ", " + (controller == null));
             _manager.Apply(this, controller);
         }
     }
@@ -79,7 +70,7 @@ public class GTTODSauce : BaseUnityPlugin {
         if(Input.GetKey(KeyCode.F4) && _modSingleton.Applied.Ticks >= 0) {
             _modSingleton.Applied.Tick(-60);
             _modSingleton.Toggle(__instance);
-            // GameManager.GM.GetComponent<GTTOD_HUD>().BigTextPopUp($"Sauce {(_modSingleton.Applied ? "enabled" : "disabled")}", 0);
+            GameManager.GM.HUD.ObjectivePopUp($"{(_modSingleton.Applied ? "sauced" : "de-sauced")}", "");
         }
         if(!_modSingleton.Applied) return true;
         if(_modSingleton._manager == null) {

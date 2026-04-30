@@ -12,7 +12,7 @@ things - namely by toggling kinematic mode on the fly, and by using some complex
 character controller to counteract the effects of rigidbody friction and mass.
 
 I've completely bypassed all stock movement code belonging to doorguy and replaced it with my own discrete 
-kinematic controller.
+kinematic controller. The mod can be toggled in-game by pressing F4.
 
 ## what it do:
 - Acts as a drop-in replacement for all movement code in GTTOD
@@ -26,4 +26,3 @@ kinematic controller.
 ## whats left (todo)
 - Implement vaulting with a new timing system so that accidental vaults don't consume all your speed
 - Centralize important movement variables so that they can be adjusted via commands and/or the plugin config file
-- Cache the state of the ac_CharacterController instance so that it can be restored to allow the mod to be toggled at runtime
