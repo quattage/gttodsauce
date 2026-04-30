@@ -23,6 +23,11 @@ public struct Intention {
 
     public Intention() { }
 
+    public Intention(bool defaultValue) {
+        Trying = defaultValue;
+        Doing = defaultValue;
+    }
+
     public Intention Tick(int amount = 1) {
         if(amount > 0 && Ticks < 1024)
             Ticks += (short)amount;
@@ -30,6 +35,11 @@ public struct Intention {
             Ticks += (short)amount;
         // TOOD ticking by 0 should be tracked for actions later
         return this;
+    }
+
+    public void Unsubscribe() {
+        EntryTrigger = null;
+        ExitTrigger = null;
     }
 
     public void ResetTicks() {

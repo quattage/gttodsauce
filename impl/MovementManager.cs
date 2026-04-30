@@ -7,10 +7,10 @@ using static GTTODSauce.impl.TraceHelpers;
 
 namespace GTTODSauce.impl;
 
-public class MovementManager(GTTODSauce mod, ac_CharacterController controller) {
+public class MovementManager {
 
-    public ac_CharacterController Controller { get; private set; } = controller;
-    private GTTODSauce _mod = mod;
+    public ac_CharacterController Controller { get; private set; }
+    private GTTODSauce _mod;
 
     // replace these with MovementVariables and BodyVariables(?) where possible
     private const float _slopeAngle = 65f;
@@ -55,13 +55,10 @@ public class MovementManager(GTTODSauce mod, ac_CharacterController controller) 
     private Vector3 _dashEndpoint;
     private Vector3 _cameraZ; // x = stand, y = crouch, z = impulse
 
-    // called by the mod object when the code is injected
-    public void Apply() {
-        Update();
-        FixedUpdate();
+    public void Apply(GTTODSauce mod, ac_CharacterController controller) {
+        _mod = mod;
+        Controller = controller;
         _cameraZ = new(Controller.CameraParent.localPosition.y, Controller.CameraParent.localPosition.y - 1f, 1);
-        if(Controller.PlayerCollider == null)
-            Controller.PlayerCollider = Controller.GetComponent<CapsuleCollider>();
         WallStuff.SetupTransforms(Controller.transform, Controller.CameraParent);
 
         // this bit is REALLY important for some reason
@@ -73,12 +70,17 @@ public class MovementManager(GTTODSauce mod, ac_CharacterController controller) 
         _mod.Log("Applied GTTODSauce MovementManager");
     }
 
-    // called by the mod object before its destroyed to clean things up
     public void Revert() {
         WallStuff.TakedownTransforms(Controller.transform, Controller.CameraParent);
-        Controller = null;
+        RB.mass = 1;
         _mod.Log("Reverted GTTODSauce MovementManager");
         _mod = null;
+        Grounded.Unsubscribe();
+        Jumping.Unsubscribe();
+        Sliding.Unsubscribe();
+        Crouching.Unsubscribe();
+        Dashing.Unsubscribe();
+        Wallrunning.Unsubscribe();
     }
 
     public void RefundDashes() {
@@ -736,7 +738,10 @@ public class MovementManager(GTTODSauce mod, ac_CharacterController controller) 
     }
 
     private bool ShouldPauseUpdates() {
-        return !_mod.enabled || Controller == null || !Controller.enabled || !Controller.Active || Controller.PlayerManager.PlayerEngaged;
+        return _mod == null || !_mod.enabled
+            || !_mod.Applied || Controller == null
+            || !Controller.enabled || !Controller.Active
+            || Controller.PlayerManager.PlayerEngaged;
     }
 
     private void TryReset() {
