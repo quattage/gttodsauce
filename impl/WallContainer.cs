@@ -73,7 +73,11 @@ public class WallContainer {
         AttachPercent = 1;
     }
 
-    public Vector3 GetUpBasis(Vector3 pos, float contactDistance, float strength = 0.1f, bool overrideCondition = false) {
+    private float GetEasedAttach() {
+        return AttachPercent <= 0 ? 0 : AttachPercent >= 1 ? 1 : 1 - Mathf.Pow(2, 10 * AttachPercent - 10);
+    }
+
+    public Vector3 GetUpBasis(Vector3 pos, float contactDistance, float strength = 0.15f, bool overrideCondition = false) {
         if(AverageNormal.magnitude < 0.1f || overrideCondition) {
             _upBasis = Vector3.MoveTowards(_upBasis, Vector3.up, Time.deltaTime);
             return _upBasis;
@@ -82,7 +86,7 @@ public class WallContainer {
         float diffLength = wallDifference.magnitude;
         float offsetPercent = 1 - (diffLength / (contactDistance));
 
-        Vector3 current = Vector3.Slerp(Vector3.up, AverageNormal, strength * offsetPercent);
+        Vector3 current = Vector3.Slerp(Vector3.up, AverageNormal, strength * offsetPercent * GetEasedAttach());
         Vector3 newUpBasis = Vector3.MoveTowards(_upBasis, current, Time.deltaTime * 0.8f);
         _upBasis = Vector3.MoveTowards(_upBasis, newUpBasis, Time.deltaTime * 0.8f);
         return _upBasis;

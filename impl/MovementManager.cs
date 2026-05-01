@@ -549,17 +549,30 @@ public class MovementManager {
             return false;
         }
 
-        // wallruns
-        _velocity = _velocity
-            .ProjectAndPreserve(WallStuff.AverageNormal)
-            .ApplyAcceleration(wishdirWall.XZ(), 86, 2f)
-            .ApplyFrictionY(5f)
-            .ApplyFrictionXZ(3f);
-        if(offset > Collider.radius)
-            _velocity -= WallStuff.AverageNormal;
+        Vector3 projectedVelocity = _velocity.ProjectAndPreserve(WallStuff.AverageNormal);
+        if(XZSpeed < 8) {
+            _velocity = projectedVelocity
+                .ApplyAcceleration(wishdirWall.XZ(), 86, 2f)
+                .ApplyGravity(30)
+                .ApplyFrictionXZ(2.2f);
+        } else {
+            _velocity = projectedVelocity
+                .ApplyAcceleration(wishdirWall.XZ(), 86, 2f)
+                .ApplyFrictionY(3f)
+                .ApplyFrictionXZ(3f);
+        }
 
-        RB.velocity = _velocity;
         Wallrunning.Tick();
+        RB.velocity = _velocity;
+
+        WallStuff.AttachPercent = Mathf.Clamp(Wallrunning.Ticks / 256f, 0, 1);
+        if(WallStuff.AttachPercent >= 1) {
+            EnsureAirtime();
+            RefundAirjump();
+            RefundDashes();
+            return CancelWallrun();
+        }
+
         if(Wallrunning.Ticks % 2 == 0) WallStuff.PreviousNormal = WallStuff.AverageNormal;
         DumpState();
         return true;
