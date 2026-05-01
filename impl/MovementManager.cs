@@ -141,6 +141,8 @@ public class MovementManager {
         UpdateHeadZ(Crouching.Doing ? 1.6f : 0, Sliding ? 20f : 8f);
         UpdateRotation();
         Controller.ControllerUpdate();
+        // what the fuck are you on andrew
+        // Controller.Effects.SlideVFX.VFXTarget.localPosition = BottomSurface;
     }
 
     private void UpdateRotation(float clamp = 89.9f) {
@@ -764,6 +766,7 @@ public class MovementManager {
     }
 
     private bool RisingEdgeJump() {
+        //        :/
         foreach(KeyBindingInput bindInput in KeyBindingManager.BindInputs) {
             if(bindInput.Action != KeyAction.Jump) continue;
             if(Input.GetKeyDown(bindInput.Code)) {
