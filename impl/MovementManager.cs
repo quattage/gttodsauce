@@ -19,8 +19,9 @@ public class MovementManager {
     private const float _dashDistance = 15f;
     private const byte _gracePeriod = 15;
     private const byte _wallSearchDistance = 8;
-    private const bool _dumpState = false;
-    private const bool _airstrafeForgiveness = false; // allow the player to hold W while moving quickly in the air and still airstrafe properly
+    private const bool _dumpState = true;
+
+    private const bool _looseFeel = true; // allow the player to hold W while moving quickly in the air and still airstrafe properly
 
     // helpers
     public Rigidbody RB => Controller.PlayerPhysics;
@@ -134,7 +135,7 @@ public class MovementManager {
         if(ShouldPauseUpdates()) return;
         PatchVanillaCC();
         TryReset();
-        _wishdir = VectorExtentions.MakeWishdir(!Grounded.Doing && _airstrafeForgiveness && XZSpeed > 0.6f);
+        _wishdir = VectorExtentions.MakeWishdir(!Sliding.Doing && !Grounded.Doing && _looseFeel && XZSpeed > 0.6f);
         _wishdirRotated = Controller.transform.rotation * _wishdir;
         if(!Jumping.Trying) Jumping.SetTrying(RisingEdgeJump());
         Crouching.SetTrying(KeyBindingManager.ActionPressed(KeyAction.Crouch));
@@ -348,7 +349,7 @@ public class MovementManager {
             Crouching.SetDoing(false);
             ResizeCollider(Controller.BodyVariables.ColliderHeight * Controller.BodyVariables.SizeModifier);
         } else if(Crouching.Ticks < 0) Crouching.Tick();
-        _velocity = _velocity.ApplyAcceleration(_wishdirRotated, 20, Crouching ? 4 : 3);
+        _velocity = _velocity.ApplyAcceleration(_wishdirRotated, 20, _looseFeel ? 6 : (Crouching ? 4 : 3));
         if(XZSpeed > 30 && _wishdir.magnitude < 0.3)
             _velocity = _velocity.ApplyFrictionXZ(0.05f);
         else _velocity = _velocity.ApplyFrictionXZ(0.5f);
