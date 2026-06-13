@@ -20,6 +20,7 @@ public class MovementManager {
     private const byte _gracePeriod = 15;
     private const byte _wallSearchDistance = 8;
     private const bool _dumpState = false;
+    private const bool _airstrafeForgiveness = false; // allow the player to hold W while moving quickly in the air and still airstrafe properly
 
     // helpers
     public Rigidbody RB => Controller.PlayerPhysics;
@@ -133,7 +134,7 @@ public class MovementManager {
         if(ShouldPauseUpdates()) return;
         PatchVanillaCC();
         TryReset();
-        _wishdir = VectorExtentions.MakeWishdir();
+        _wishdir = VectorExtentions.MakeWishdir(!Grounded.Doing && _airstrafeForgiveness && XZSpeed > 0.6f);
         _wishdirRotated = Controller.transform.rotation * _wishdir;
         if(!Jumping.Trying) Jumping.SetTrying(RisingEdgeJump());
         Crouching.SetTrying(KeyBindingManager.ActionPressed(KeyAction.Crouch));

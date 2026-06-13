@@ -107,7 +107,12 @@ public static class VectorExtentions {
         return vector + wishdir * accelspeed;
     }
 
-    public static Vector3 MakeWishdir() {
+    public static Vector3 MakeWishdir(bool airstrafeForgiveness = false) {
+        if(airstrafeForgiveness) {
+            float fb = GetForwardBack();
+            float lr = -GetLeftRight();
+            if(fb > 0 && !Mathf.Approximately(lr, 0)) return new Vector3(lr, 0, 0).normalized;
+        }
         // dubious controller support since wishdir is normalized
         return new Vector3(-GetLeftRight(), 0, GetForwardBack()).normalized;
     }
