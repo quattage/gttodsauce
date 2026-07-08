@@ -1,3 +1,4 @@
+using System;
 using System.Diagnostics;
 using UnityEngine;
 
@@ -234,6 +235,30 @@ public class TraceHelpers {
         avgPos /= hits;
         avgNorm = (avgNorm / hits).normalized;
         return true;
+    }
+
+    /// <summary>
+    /// Casts a handful of parallel rays in a circular pattern. 
+    /// This is very useful for determining if some interaction requires
+    /// very small overhangs, objects, or mesh collider artifacts to be discarded.
+    /// </summary>
+    /// <param name="pos">The position to cast from</param>
+    /// <param name="dir">The normalized direction to cast towards</param>
+    /// <param name="radius">The radius of the pattern that will be cast</param>
+    /// <param name="resolution">The number of rays to cast</param>
+    /// <param name="layerMask">The layermask to use when casting</param>
+    /// <returns>true/false indicating whether or not every raycast in a circular pattern was a successful hitt</returns>
+    public static bool SurfaceAreaSupport(Vector3 pos, Vector3 dir, float distance = 3, float radius = 0.2f, int resolution = 10, int layerMask = ~(1 << 8)) {
+        float angle;
+        int hits = 0; bool hit;
+        Vector3 offset;
+        for(int x = 0; x < resolution; x++) {
+            angle = x * (float)Math.PI * 2f / resolution;
+            offset = new Vector3(Mathf.Cos(angle), 0, Mathf.Sin(angle)).normalized * radius;
+            hit = Physics.Raycast(pos + offset, dir, distance, layerMask);
+            if(hit) hits++;
+        }
+        return hits > resolution / 2;
     }
 
 }

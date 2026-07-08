@@ -15,12 +15,13 @@ public class MovementManager {
     // replace these with MovementVariables and BodyVariables(?) where possible
     private const float _slopeAngle = 65f;
     private const float _wallAngle = 42f;
-    private const float _stepHeight = 0.5f;
     private const float _dashDistance = 15f;
     private const byte _gracePeriod = 15;
     private const byte _wallSearchDistance = 8;
-    private const bool _dumpState = true;
 
+    // replace these with config options
+    private const bool _dumpState = true;
+    private const float _stepHeight = 0.5f;
     private const bool _looseFeel = true; // allow the player to hold W while moving quickly in the air and still airstrafe properly
 
     // helpers
@@ -135,9 +136,10 @@ public class MovementManager {
         if(ShouldPauseUpdates()) return;
         PatchVanillaCC();
         TryReset();
-        _wishdir = VectorExtentions.MakeWishdir(!Sliding.Doing && !Grounded.Doing && _looseFeel && XZSpeed > 0.6f);
+        _wishdir = VectorExtentions.MakeWishdir(!Sliding.Doing && !Grounded.Doing && (_looseFeel && !Swimming) && XZSpeed > 0.6f);
         _wishdirRotated = Controller.transform.rotation * _wishdir;
-        if(!Jumping.Trying) Jumping.SetTrying(RisingEdgeJump());
+        if(Swimming) Jumping.SetTrying(KeyBindingManager.ActionPressed(KeyAction.Jump));
+        else if(!Jumping.Trying) Jumping.SetTrying(RisingEdgeJump());
         Crouching.SetTrying(KeyBindingManager.ActionPressed(KeyAction.Crouch));
         Dashing.SetTrying(!Crouching.Expected && KeyBindingManager.ActionPressed(KeyAction.Dash));
         UpdateHeadZ(Crouching.Doing ? 1.6f : 0, Sliding ? 20f : 8f);
@@ -158,7 +160,11 @@ public class MovementManager {
         Controller.XCameraRotation = Mathf.Clamp(Controller.XCameraRotation -= deltaY, -clamp, clamp);
         Controller.YCameraRotation += deltaX;
 
-        Vector3 localUp = WallStuff.GetUpBasis(CenterMass, _wallSearchDistance, overrideCondition: Crouching.Doing);
+        Vector3 localUp;
+        if(Swimming)
+            localUp = new Vector3(_velocity.x * 0.001f, 1, _velocity.z * 0.001f).normalized;
+        else
+            localUp = WallStuff.GetUpBasis(CenterMass, _wallSearchDistance, overrideCondition: Crouching.Doing);
         Vector3 forward = Vector3.ProjectOnPlane(Quaternion.Euler(0, Controller.YCameraRotation, 0) * Vector3.forward, localUp).normalized;
         Quaternion basis = Quaternion.LookRotation(forward, localUp);
         Quaternion targetRot = basis * Quaternion.Euler(Controller.XCameraRotation, 0, Controller.ZCameraRotation);
@@ -222,6 +228,11 @@ public class MovementManager {
         bool hit = Physics.BoxCast(CenterMass, FloorExtents, Vector3.down, out Controller.GroundCheck, Quaternion.identity, FloorCastDistance, ~(1 << 8));
         float distance = Mathf.Abs(RB.position.y - BottomSurface.y);
         if(!hit || Controller.GroundCheck.distance > distance || Vector3.Angle(Vector3.up, Controller.GroundCheck.normal) > _slopeAngle) {
+            Grounded.SetDoing(false);
+            return;
+        }
+        bool significant = SurfaceAreaSupport(CenterMass, Vector3.down, FloorCastDistance + 0.3f, 0.01f);
+        if(!significant) {
             Grounded.SetDoing(false);
             return;
         }
@@ -357,13 +368,11 @@ public class MovementManager {
     }
 
     private void MoveInWater() {
-        float forwardMagnitude = _wishdir.z;
-        Vector3 forward = Controller.CameraParent.forward * forwardMagnitude;
-        Vector3 sideways = Controller.transform.rotation * new Vector3(_wishdir.x, 0, _wishdir.z);
-        Vector3 combined = new(sideways.x + forward.x, forward.y, sideways.z + forward.z);
+        Vector3 move = Controller.CameraParent.rotation * new Vector3(_wishdir.x, _wishdir.y + (Jumping.Trying ? 1 : Crouching.Trying ? -1 : 0), _wishdir.z).normalized;
         _velocity =
-            _velocity.ApplyAcceleration(combined, 40, 4)
-            .ApplyFriction(3);
+            _velocity.ApplyAcceleration(move, 50, 1.9f)
+            .ApplyFrictionXZ(4)
+            .ApplyFrictionY(2);
         RefundAirjump();
         RefundDashes();
     }
@@ -554,22 +563,17 @@ public class MovementManager {
         }
 
         Vector3 projectedVelocity = _velocity.ProjectAndPreserve(WallStuff.AverageNormal);
-        if(XZSpeed < 8) {
-            _velocity = projectedVelocity
-                .ApplyAcceleration(wishdirWall.XZ(), 86, 2f)
-                .ApplyGravity(30)
-                .ApplyFrictionXZ(2.2f);
-        } else {
-            _velocity = projectedVelocity
-                .ApplyAcceleration(wishdirWall.XZ(), 86, 2f)
-                .ApplyFrictionY(3f)
-                .ApplyFrictionXZ(3f);
-        }
+        WallStuff.AttachPercent = Mathf.Clamp(Wallrunning.Ticks / 256f, 0, 1);
+        float speedPercent = Mathf.Clamp(XZSpeed, 0, 8) / 8;
+        _velocity = projectedVelocity
+            .ApplyAcceleration(wishdirWall.XZ(), 86, 2f)
+            .ApplyGravity(30)
+            .ApplyFrictionY(8f * (1 - WallStuff.AttachPercent) * speedPercent)
+            .ApplyFrictionXZ(3f);
 
         Wallrunning.Tick();
         RB.velocity = _velocity;
 
-        WallStuff.AttachPercent = Mathf.Clamp(Wallrunning.Ticks / 256f, 0, 1);
         if(WallStuff.AttachPercent >= 1) {
             EnsureAirtime();
             RefundAirjump();
@@ -763,6 +767,7 @@ public class MovementManager {
         if(Input.GetKey(KeyCode.F2)) {
             _velocity = Vector3.zero;
             RB.velocity = Vector3.zero;
+            // as of right now the level spawnpoint is always 0,0,0 - this might (and probably should) change in the future
             Controller.transform.position = new Vector3(0, 0, 0);
         }
     }
