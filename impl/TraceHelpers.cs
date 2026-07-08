@@ -75,8 +75,6 @@ public class TraceHelpers {
             float rad = radius * 0.7f;
             return [
                 WallCandidate.OfTrajectory(pos, displace, velocity, forwardLook, wishdir, rad, mask),
-                new(pos, displace, Vector3.ProjectOnPlane(wishdir, forwardLook).normalized, forwardLook, rad, mask),
-                new(pos, displace, velocity.normalized, forwardLook, rad, mask),
             ];
         }
 

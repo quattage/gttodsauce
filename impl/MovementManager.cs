@@ -1,5 +1,6 @@
 
 using System;
+using System.Security.Cryptography;
 using EZCameraShake;
 using UnityEngine;
 using static ac_CharacterController;
@@ -63,7 +64,6 @@ public class MovementManager {
         Controller = controller;
         _cameraZ = new(Controller.CameraParent.localPosition.y, Controller.CameraParent.localPosition.y - 1f, 1);
         WallStuff.SetupTransforms(Controller.transform, Controller.CameraParent);
-        // this bit is REALLY important for some reason
         Collider.radius = Controller.BodyVariables.ColliderRadius / ((Controller.CharacterGroundState != GroundState.Onwall) ? 1 : 2) * Controller.BodyVariables.SizeModifier;
         ResizeCollider(Controller.BodyVariables.ColliderHeight * Controller.BodyVariables.SizeModifier);
         _prevY = RB.position.y;
@@ -145,8 +145,6 @@ public class MovementManager {
         UpdateHeadZ(Crouching.Doing ? 1.6f : 0, Sliding ? 20f : 8f);
         UpdateRotation();
         Controller.ControllerUpdate();
-        // what the fuck are you on andrew
-        // Controller.Effects.SlideVFX.VFXTarget.localPosition = BottomSurface;
     }
 
     private void UpdateRotation(float clamp = 89.9f) {
@@ -161,18 +159,34 @@ public class MovementManager {
         Controller.YCameraRotation += deltaX;
 
         Vector3 localUp;
-        if(Swimming)
-            localUp = new Vector3(_velocity.x * 0.001f, 1, _velocity.z * 0.001f).normalized;
-        else
-            localUp = WallStuff.GetUpBasis(CenterMass, _wallSearchDistance, overrideCondition: Crouching.Doing);
+        if(Swimming) localUp = new Vector3(_velocity.x * 0.001f, 1, _velocity.z * 0.001f).normalized;
+        else localUp = WallStuff.GetUpBasis(CenterMass, _wallSearchDistance, overrideCondition: Crouching.Doing);
         Vector3 forward = Vector3.ProjectOnPlane(Quaternion.Euler(0, Controller.YCameraRotation, 0) * Vector3.forward, localUp).normalized;
         Quaternion basis = Quaternion.LookRotation(forward, localUp);
+
         Quaternion targetRot = basis * Quaternion.Euler(Controller.XCameraRotation, 0, Controller.ZCameraRotation);
         Vector3 targetForward = targetRot * Vector3.forward;
-        Quaternion yaw = Quaternion.LookRotation(Vector3.ProjectOnPlane(targetForward, localUp).normalized, localUp);
 
-        Controller.transform.rotation = yaw;
+        float yawNudge = 0;
+        if(Wallrunning) {
+            Vector3 pTangent = Vector3.Cross(Vector3.up, WallStuff.AverageNormal);
+            Vector3 nTangent = -pTangent;
+            Vector3 desired = Vector3.Dot(targetForward, pTangent) > Vector3.Dot(targetForward, nTangent) ? pTangent : nTangent;
+            desired += WallStuff.AverageNormal * 2f;
+            desired.Normalize();
+            float wallLookTowards = Vector3.Dot(targetForward, -WallStuff.AverageNormal);
+            float weight = Mathf.InverseLerp(0f, 1f, Mathf.Clamp01(wallLookTowards));
+            Vector3 nudged = Vector3.Slerp(targetForward, desired, weight);
+            yawNudge = Vector3.SignedAngle(targetForward, nudged, localUp);
+        }
+
+        Quaternion yaw = Quaternion.LookRotation(Vector3.ProjectOnPlane(targetForward, localUp).normalized, localUp);
         Controller.CameraParent.localRotation = Quaternion.Inverse(yaw) * targetRot;
+        Controller.transform.rotation = yaw;
+
+        float step = 1700 * Time.deltaTime;
+        float nudgeForce = Mathf.Clamp(yawNudge, -step, step);
+        Controller.YCameraRotation += nudgeForce * 0.04f;
     }
 
     public void FixedUpdate() {
@@ -275,21 +289,17 @@ public class MovementManager {
         }
 
         Quaternion look = Quaternion.Euler(0, Controller.YCameraRotation, 0);
-        WallCandidate[] nearby = WallCandidate.Collect(
-            CenterMass, Collider.height, Collider.radius,
-            look * Vector3.forward,
-            Controller.transform.right, _velocity
-        );
 
-        WallCandidate wall = WallCandidate.FindBest(nearby);
-        if(!wall.IsRelevent(_velocity, _wallSearchDistance)
-            || !wall.IsVertical(_wallAngle)
-            || !wall.IsInView()
-            || !wall.IsOpposingPrevious(WallStuff)) {
+        Vector3 displace = new(0, (Collider.height / 2) - Collider.radius, 0);
+        WallCandidate candidate = WallCandidate.OfTrajectory(CenterMass, displace, _velocity, look * Vector3.forward, _wishdir, Collider.radius);
+        if(!candidate.IsRelevent(_velocity, _wallSearchDistance)
+            || !candidate.IsVertical(_wallAngle)
+            || !candidate.IsInView()
+            || !candidate.IsOpposingPrevious(WallStuff)) {
             CancelWallrun();
             return;
         }
-        WallStuff.Prime(wall, look);
+        WallStuff.Prime(candidate, look);
         Wallrunning.SetTrying(true);
     }
 
@@ -733,7 +743,10 @@ public class MovementManager {
             WallStuff.Sounds?.Play();
             JumpMovementShake(6.5f);
             Controller.PlayerBody.Recoil(new Vector3(0f, 0.15f, -0.1f), Vector3.zero, 8f, 18f);
-
+            Vector3 corrected = WallStuff.Position;
+            corrected.y = CenterMass.y + 0.5f;
+            Transform obj = UnityEngine.Object.Instantiate(Controller.WallController.WallEffect, corrected, Quaternion.identity).transform;
+            obj.LookAt(CenterMass);
         };
         Wallrunning.ExitTrigger += () => {
             WallStuff.Sounds?.Stop();
