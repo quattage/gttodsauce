@@ -20,7 +20,7 @@ public class MovementManager {
     private const byte _wallSearchDistance = 8;
 
     // replace these with config options
-    private const bool _dumpState = true;
+    private const bool _dumpState = false;
     private const float _stepHeight = 0.5f;
     private const bool _looseFeel = true; // allow the player to hold W while moving quickly in the air and still airstrafe properly
 
