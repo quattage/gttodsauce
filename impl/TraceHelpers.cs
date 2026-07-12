@@ -49,33 +49,47 @@ public class TraceHelpers {
             );
         }
 
-        public static WallCandidate OfTrajectory(in Vector3 pos, in Vector3 disp, in Vector3 vel, in Vector3 wishdir, in Vector3 forwardLook, in float rad, in int mask = ~(1 << 8)) {
-            RaycastHit? hit = TraceHelpers.Trajectory(pos, disp, vel, rad, mask, 20f, Time.fixedDeltaTime * 3);
+        public WallCandidate(in Vector3 norm, in Vector3 pos, in Vector3 forwardLook, in float distance) {
+            Hit = true;
+            NormXZ = norm.normalized.XZ();
+            this.Trace = new() {
+                m_Point = pos,
+                m_Normal = norm,
+                m_Distance = distance,
+            };
+            _vars = new(
+                Vector3.Angle(Trace.normal, Vector3.up),
+                Vector3.Dot(forwardLook, NormXZ),
+                Vector3.Dot(norm, NormXZ),
+                distance
+            );
+        }
+
+        public static WallCandidate OfTrajectory(in Vector3 pos, in Vector3 disp, in Vector3 vel, in Vector3 mod, in Vector3 wishdir, in Vector3 forwardLook, in float rad, in float traceDistance = 20f, in int mask = ~(1 << 8)) {
+            RaycastHit? hit = TraceHelpers.Trajectory(pos, disp, vel, mod, rad, mask, traceDistance, Time.fixedDeltaTime * 3);
             if(hit == null) return new(null, pos, wishdir, forwardLook);
             return new(hit.Value, pos, wishdir, forwardLook);
         }
 
-        /// <summary>
-        /// Creates 5 WallCandidate objects by casting capsules in various directions. Casts
-        /// 1. Along the trajectory of the current velocity, which is useful for predicting walls before they are touched.
-        /// 2. Along the current wishdir projected to the left/right, which is useful for capturing subtle strafing movements 
-        /// 3. Straight forward, which is useful for detecting walls that the player is looking directly at but may not be moving towards (e.g. if the player is standing still or moving very slowly).
-        /// </summary>
-        /// <param name="pos">The initial position to cast from</param>
-        /// <param name="height">The height of the capsule to cast</param>
-        /// <param name="radius">The radius of the capsule</param>
-        /// <param name="forwardLook">The direction the capsule is looking</param>
-        /// <param name="tangentLook">The tangent of the forwardLook direction (usually just Transform.right)</param>
-        /// <param name="velocity">The current velocity of the parent caster</param>
-        /// <param name="wishdir">The current attempted moving direction of the parent caster on the XZ plane</param>
-        /// <param name="mask">The layermask to use when casting</param>
-        /// <returns>A list of WallCandidates in no particular order.</returns>
-        public static WallCandidate[] Collect(in Vector3 pos, in float height, in float radius, in Vector3 forwardLook, in Vector3 velocity, in Vector3 wishdir, int mask = ~(1 << 8)) {
-            Vector3 displace = new(0, (height / 2) - radius, 0);
-            float rad = radius * 0.7f;
-            return [
-                WallCandidate.OfTrajectory(pos, displace, velocity, forwardLook, wishdir, rad, mask),
-            ];
+        public static WallCandidate? OfIntersections(GTTODSauce _mod, in Collider rbc, in Vector3 pos, in Vector3 disp, Vector3 forwardLook, in float rad, in int mask = ~(1 << 8)) {
+            Collider[] colls = Physics.OverlapCapsule(pos - disp, pos + disp, rad, mask);
+            if(colls.Length <= 0) return null;
+            if(colls.Length == 1) {
+                Collider tgt = colls[0];
+                Physics.ComputePenetration(rbc, pos, rbc.gameObject.transform.rotation, tgt, tgt.gameObject.transform.position, tgt.gameObject.transform.rotation, out Vector3 normal, out float distance);
+                return new WallCandidate(normal, pos + normal, forwardLook, distance);
+            }
+            Vector3 outputNormal = Vector3.zero;
+            float workingDistance = 9999;
+            for(int x = 0; x < colls.Length; x++) {
+                Collider tgt = colls[x];
+                Physics.ComputePenetration(rbc, pos, rbc.gameObject.transform.rotation, tgt, tgt.gameObject.transform.position, tgt.gameObject.transform.rotation, out Vector3 normal, out float distance);
+                if(distance < workingDistance) {
+                    workingDistance = distance;
+                    outputNormal = normal;
+                }
+            }
+            return new WallCandidate(outputNormal, pos + outputNormal, forwardLook, workingDistance);
         }
 
         /// <summary>
@@ -149,7 +163,7 @@ public class TraceHelpers {
         }
 
         public bool IsOpposingPrevious(WallContainer wall) {
-            if(wall.PreviousWallTouch.magnitude < 0.1) return true;
+            if(Trace.normal.magnitude < 0.1 || wall.PreviousNormal.magnitude < 0.1) return true;
             float fac = Vector3.Dot(wall.PreviousWallTouch, Trace.normal);
             return fac < 0.8;
         }
@@ -163,12 +177,13 @@ public class TraceHelpers {
     /// <param name="pos">The starting position of the object</param>
     /// <param name="displacement">The difference between the two centers of the capsule. This is calculated by (height / 2) - radius</param>
     /// <param name="vel">The initial velocity of the object</param>
+    /// /// <param name="mod">An arbitrary vector that modifies the velocity for the first iteration to bias results away from edge cases</param>
     /// <param name="radius">The radius of the capsule</param>
     /// <param name="layerMask">The layermask to use when casting</param>
     /// <param name="traceDistance">The total distance of the trajectory represented as arclength in meters</param>
     /// <param name="step">How far to step along the trajectory when casting. Smaller numbers = higher resolution</param>
     /// <returns>A RaycastHit, or null if nothing was hit.</returns>
-    public static RaycastHit? Trajectory(Vector3 pos, in Vector3 displacement, Vector3 vel, in float radius, in int layerMask = ~(1 << 8), in float traceDistance = 20f, in float step = 0.01f) {
+    public static RaycastHit? Trajectory(Vector3 pos, in Vector3 displacement, Vector3 vel, Vector3 mod, in float radius, in int layerMask = ~(1 << 8), in float traceDistance = 20f, in float step = 0.01f) {
         Vector3 dir, delta;
         float progress = 0f, stepDistance;
         bool hit;
@@ -180,6 +195,8 @@ public class TraceHelpers {
             // this is fine for this use case since getting an absolutely perfect velocity prediction isn't super important.
             // I'd do this better by having this step through the actual movement code rather than pretend to do so here.
             vel = vel.ApplyGravity(40, step).ApplyFrictionXZ(0.5f * step);
+            if(iter == 1)
+                vel += mod;
             delta = vel * step;
             pos += delta;
             stepDistance = delta.magnitude;

@@ -16,7 +16,7 @@ the effects of rigidbody friction and mass.
 
 I've completely bypassed all stock movement code belonging to doorguy and replaced it with my own
 dynamic rigidbody-based kinematic controller. If you want to look around at the code, the main
-loop is in MovementManger.cs (check out FixedUpdate()).
+loop is in impl/MovementManger.cs (check out FixedUpdate()).
 
 The mod can be toggled in-game by pressing F4. (<-- doesn't actually work yet, but you can use this to verify that the mod is loaded)
 

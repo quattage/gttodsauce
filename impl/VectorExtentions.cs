@@ -107,6 +107,12 @@ public static class VectorExtentions {
         return vector + wishdir * accelspeed;
     }
 
+    public static Vector3 ApplyApproximatedAcceleration(this in Vector3 vector, Vector3 wishdir, in float wishspeed, in float accel) {
+        if(vector.magnitude < wishspeed)
+            return vector + (wishdir * accel);
+        return vector;
+    }
+
     public static Vector3 MakeWishdir(bool airstrafeForgiveness = false) {
         if(airstrafeForgiveness) {
             float fb = GetForwardBack();
@@ -126,5 +132,4 @@ public static class VectorExtentions {
         return -Input.GetAxis("Horizontal") + (KeyBindingManager.ActionPressed(KeyAction.StrafeLeft) ? 1
             : (KeyBindingManager.ActionPressed(KeyAction.StrafeRight) ? (-1) : 0));
     }
-
 }

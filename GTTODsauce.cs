@@ -52,6 +52,27 @@ public class GTTODSauce : BaseUnityPlugin {
         }
     }
 
+    [HarmonyPatch(typeof(ac_CharacterController), "Start"), HarmonyPostfix]
+    public static void GTTODSauce_ac_CharacterController_Start_POST(ac_CharacterController __instance) {
+        if(_modSingleton == null || !_modSingleton.Applied) return;
+        if(!_modSingleton.Applied || _modSingleton._manager == null) return;
+        _modSingleton._manager = new();
+        _modSingleton._manager.Apply(_modSingleton, __instance);
+    }
+
+    static void dumpColliderStats(CapsuleCollider collider, string clarify = "") {
+        if(string.IsNullOrWhiteSpace(clarify))
+            _modSingleton.Log("___________________");
+        else _modSingleton.Log("______ " + clarify + " ________");
+        if(collider == null) {
+            _modSingleton.Log("(unavailable)");
+            return;
+        }
+        _modSingleton.Log("CENTER: " + collider.center);
+        _modSingleton.Log("HEIGHT: " + collider.height);
+        _modSingleton.Log("RADIUS: " + collider.radius);
+    }
+
     [HarmonyPatch(typeof(ac_CharacterController), "Update"), HarmonyPrefix]
     public static bool GTTODSauce_ac_CharacterController_Update(ac_CharacterController __instance) {
         if(_modSingleton == null || !_modSingleton.Applied) return true;
@@ -83,7 +104,7 @@ public class GTTODSauce : BaseUnityPlugin {
 
     [HarmonyPatch(typeof(ac_CharacterController), "LateUpdate"), HarmonyPrefix]
     public static bool GTTODSauce_ac_CharacterController_LateUpdate(ac_CharacterController __instance) {
-        // the mod doesn't need this
+        // the mod doesn't need this (FOR NOW)
         return _modSingleton != null && !_modSingleton.Applied;
     }
 

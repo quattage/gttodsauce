@@ -3,6 +3,7 @@ using System;
 using System.Security.Cryptography;
 using EZCameraShake;
 using UnityEngine;
+using UnityEngine.UIElements;
 using static ac_CharacterController;
 using static GTTODSauce.impl.TraceHelpers;
 
@@ -18,7 +19,7 @@ public class MovementManager {
     private const float _wallAngle = 42f;
     private const float _dashDistance = 15f;
     private const byte _gracePeriod = 15;
-    private const byte _wallSearchDistance = 8;
+    private const byte _wallSearchDistance = 6;
 
     // replace these with config options
     private const bool _dumpState = false;
@@ -84,6 +85,8 @@ public class MovementManager {
         _mod = null;
     }
 
+
+
     public void RefundDashes() {
         Controller.CurrentDashCount = Controller.DashCount;
     }
@@ -145,6 +148,7 @@ public class MovementManager {
         UpdateHeadZ(Crouching.Doing ? 1.6f : 0, Sliding ? 20f : 8f);
         UpdateRotation();
         Controller.ControllerUpdate();
+        UpdateViewmodelOffset();
     }
 
     private void UpdateRotation(float clamp = 89.9f) {
@@ -160,10 +164,9 @@ public class MovementManager {
 
         Vector3 localUp;
         if(Swimming) localUp = new Vector3(_velocity.x * 0.001f, 1, _velocity.z * 0.001f).normalized;
-        else localUp = WallStuff.GetUpBasis(CenterMass, _wallSearchDistance, overrideCondition: Crouching.Doing);
+        else localUp = WallStuff.GetUpBasis(CenterMass, _wallSearchDistance, strength: 0.22f, overrideCondition: Crouching.Doing);
         Vector3 forward = Vector3.ProjectOnPlane(Quaternion.Euler(0, Controller.YCameraRotation, 0) * Vector3.forward, localUp).normalized;
         Quaternion basis = Quaternion.LookRotation(forward, localUp);
-
         Quaternion targetRot = basis * Quaternion.Euler(Controller.XCameraRotation, 0, Controller.ZCameraRotation);
         Vector3 targetForward = targetRot * Vector3.forward;
 
@@ -189,6 +192,11 @@ public class MovementManager {
         Controller.YCameraRotation += nudgeForce * 0.04f;
     }
 
+
+    void UpdateViewmodelOffset() {
+        // no impl yet
+    }
+
     public void FixedUpdate() {
         if(ShouldPauseUpdates()) return;
         /// ingesting the velocity from the previous rigidbody update cuz the 
@@ -196,6 +204,10 @@ public class MovementManager {
         if(!RB.isKinematic) _velocity = RB.velocity;
 
         if(Swimming) {
+            RefundDashes();
+            RefundAirjump();
+            RefundSliding();
+            RefundWallkicks();
             MoveInWater();
             RB.velocity = _velocity;
             _prevY = RB.position.y;
@@ -289,17 +301,22 @@ public class MovementManager {
         }
 
         Quaternion look = Quaternion.Euler(0, Controller.YCameraRotation, 0);
+        Vector3 displace = new(0, ((Collider.height / 2) - Collider.radius), 0);
 
-        Vector3 displace = new(0, (Collider.height / 2) - Collider.radius, 0);
-        WallCandidate candidate = WallCandidate.OfTrajectory(CenterMass, displace, _velocity, look * Vector3.forward, _wishdir, Collider.radius);
-        if(!candidate.IsRelevent(_velocity, _wallSearchDistance)
-            || !candidate.IsVertical(_wallAngle)
-            || !candidate.IsInView()
-            || !candidate.IsOpposingPrevious(WallStuff)) {
+        WallCandidate? candidate;
+        candidate = WallCandidate.OfIntersections(_mod, Collider, CenterMass, displace, look * Vector3.forward, Collider.radius * 1.2f);
+        if(candidate == null || !candidate.Value.IsRelevent(_velocity, _wallSearchDistance))
+            candidate = WallCandidate.OfTrajectory(CenterMass, displace, _velocity, _wishdir * 0.5f, look * Vector3.forward, _wishdir, Collider.radius * 2f, 4f);
+        // ^^ the trajectory calculation alone isn't enough to ensure that walls aren't skipped in edge cases. i don't know why 
+        // the trajectory stuff sometimes just misses geometry, but it does. so for now, intersecting nearby walls are used to find very close contacts.
+        if(candidate == null || !candidate.Value.IsRelevent(_velocity, _wallSearchDistance)
+            || !candidate.Value.IsVertical(_wallAngle)
+            || !candidate.Value.IsInView() || !candidate.Value.IsOpposingPrevious(WallStuff)) {
             CancelWallrun();
             return;
         }
-        WallStuff.Prime(candidate, look);
+
+        WallStuff.Prime(candidate.Value, look);
         Wallrunning.SetTrying(true);
     }
 
@@ -482,7 +499,7 @@ public class MovementManager {
     private bool EvaluateWallrun() {
         bool isOnWall = TraceHelpers.HorizontalFan(CenterMass, -WallStuff.AverageNormal,
             WallStuff.Position, out WallStuff.Position, out WallStuff.AverageNormal,
-            distance: Collider.radius * 4f
+            distance: Collider.radius * 6f
         );
 
         if(Grounded || !isOnWall) {
@@ -531,6 +548,7 @@ public class MovementManager {
             Grounded.ResetTicks();
             _velocity = Vector3.ProjectOnPlane(_velocity, WallStuff.AverageNormal);
             if(XZSpeed < 60) _velocity += (_velocity.XZ().normalized * 8f);
+            WallStuff.AttachPercent = 0;
         }
 
         Vector3 wishdirWall = Vector3.ProjectOnPlane(_wishdirRotated, WallStuff.AverageNormal);
@@ -576,10 +594,10 @@ public class MovementManager {
         WallStuff.AttachPercent = Mathf.Clamp(Wallrunning.Ticks / 256f, 0, 1);
         float speedPercent = Mathf.Clamp(XZSpeed, 0, 8) / 8;
         _velocity = projectedVelocity
-            .ApplyAcceleration(wishdirWall.XZ(), 86, 2f)
+            .ApplyAcceleration(wishdirWall.XZ(), 60, 1.4f)
             .ApplyGravity(30)
             .ApplyFrictionY(8f * (1 - WallStuff.AttachPercent) * speedPercent)
-            .ApplyFrictionXZ(3f);
+            .ApplyFrictionXZ(0.06f);
 
         Wallrunning.Tick();
         RB.velocity = _velocity;

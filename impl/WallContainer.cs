@@ -79,16 +79,20 @@ public class WallContainer {
 
     public Vector3 GetUpBasis(Vector3 pos, float contactDistance, float strength = 0.15f, bool overrideCondition = false) {
         if(AverageNormal.magnitude < 0.1f || overrideCondition) {
-            _upBasis = Vector3.MoveTowards(_upBasis, Vector3.up, Time.deltaTime);
+            _upBasis = Vector3.MoveTowards(_upBasis, Vector3.up, Time.deltaTime * 1.5f);
             return _upBasis;
         }
         Vector3 wallDifference = pos - Position;
         float diffLength = wallDifference.magnitude;
-        float offsetPercent = 1 - (diffLength / (contactDistance));
+        float offsetPercent = 1 - Mathf.Clamp01((diffLength / (contactDistance)));
 
         Vector3 current = Vector3.Slerp(Vector3.up, AverageNormal, strength * offsetPercent * GetEasedAttach());
-        Vector3 newUpBasis = Vector3.MoveTowards(_upBasis, current, Time.deltaTime * 0.8f);
-        _upBasis = Vector3.MoveTowards(_upBasis, newUpBasis, Time.deltaTime * 0.8f);
+        Vector3 newUpBasis = Vector3.MoveTowards(_upBasis, current, Time.deltaTime * 1.5f);
+        _upBasis = Vector3.MoveTowards(_upBasis, newUpBasis, Time.deltaTime * 1.5f);
         return _upBasis;
+    }
+
+    public override string ToString() {
+        return "AVGN: " + AverageNormal + "\nPREVN: " + PreviousNormal + "\nA%: " + AttachPercent;
     }
 }
