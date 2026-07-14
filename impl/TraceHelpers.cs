@@ -163,8 +163,10 @@ public class TraceHelpers {
         }
 
         public bool IsOpposingPrevious(WallContainer wall) {
+            float distance = Vector3.Distance(wall.Position, this.Trace.point);
+            if(distance > 20) return true;
             if(Trace.normal.magnitude < 0.1 || wall.PreviousNormal.magnitude < 0.1) return true;
-            float fac = Vector3.Dot(wall.PreviousWallTouch, Trace.normal);
+            float fac = Vector3.Dot(wall.PreviousWallTouch.XZ(), Trace.normal.XZ());
             return fac < 0.8;
         }
     }

@@ -19,10 +19,10 @@ public class MovementManager {
     private const float _wallAngle = 42f;
     private const float _dashDistance = 15f;
     private const byte _gracePeriod = 15;
-    private const byte _wallSearchDistance = 6;
+    private const byte _wallSearchDistance = 4;
 
     // replace these with config options
-    private const bool _dumpState = false;
+    private const bool _dumpState = true;
     private const float _stepHeight = 0.5f;
     private const bool _looseFeel = true; // allow the player to hold W while moving quickly in the air and still airstrafe properly
 
@@ -257,7 +257,7 @@ public class MovementManager {
             Grounded.SetDoing(false);
             return;
         }
-        bool significant = SurfaceAreaSupport(CenterMass, Vector3.down, FloorCastDistance + 0.3f, 0.01f);
+        bool significant = SurfaceAreaSupport(CenterMass, Vector3.down, FloorCastDistance + 0.3f, 0.01f, ~(1 << 8));
         if(!significant) {
             Grounded.SetDoing(false);
             return;
@@ -337,7 +337,7 @@ public class MovementManager {
             Grounded.SetTryingAndDoing(false);
             return;
         }
-        if(Crouching.TryingButNotDoing && Crouching.Ticks == 0) {
+        if(Crouching.TryingButNotDoing) {
             Crouching.SetDoing();
             ResizeCollider(Controller.BodyVariables.ColliderHeight / 2.4f * Controller.BodyVariables.SizeModifier);
         } else if(Crouching.DoingButNotTrying && HasHeadroom()) {
@@ -379,7 +379,7 @@ public class MovementManager {
             Jumping.Tick(-_gracePeriod * 3);
             HasAirjump = false;
         }
-        if(Crouching.TryingButNotDoing && Crouching.Ticks == 0) {
+        if(Crouching.TryingButNotDoing) {
             Crouching.SetDoing();
             ResizeCollider(Controller.BodyVariables.ColliderHeight / 2.4f * Controller.BodyVariables.SizeModifier);
             Crouching.Tick(-_gracePeriod * 2);
@@ -547,6 +547,8 @@ public class MovementManager {
             Wallrunning.ResetTicks();
             Grounded.ResetTicks();
             _velocity = Vector3.ProjectOnPlane(_velocity, WallStuff.AverageNormal);
+            ApplyImpulse(new Vector3(0, 20, 0));
+
             if(XZSpeed < 60) _velocity += (_velocity.XZ().normalized * 8f);
             WallStuff.AttachPercent = 0;
         }
@@ -597,7 +599,7 @@ public class MovementManager {
             .ApplyAcceleration(wishdirWall.XZ(), 60, 1.4f)
             .ApplyGravity(30)
             .ApplyFrictionY(8f * (1 - WallStuff.AttachPercent) * speedPercent)
-            .ApplyFrictionXZ(0.06f);
+            .ApplyFrictionXZ(0.6f);
 
         Wallrunning.Tick();
         RB.velocity = _velocity;
