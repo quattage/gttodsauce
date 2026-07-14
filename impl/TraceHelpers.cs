@@ -265,7 +265,7 @@ public class TraceHelpers {
     /// <param name="resolution">The number of rays to cast</param>
     /// <param name="layerMask">The layermask to use when casting</param>
     /// <returns>true/false indicating whether or not every raycast in a circular pattern was a successful hitt</returns>
-    public static bool SurfaceAreaSupport(Vector3 pos, Vector3 dir, float distance = 3, float radius = 0.2f, int resolution = 10, int layerMask = ~(1 << 8)) {
+    public static bool SurfaceAreaSupport(Vector3 pos, Vector3 dir, float distance = 3, float radius = 0.4f, int resolution = 10, int layerMask = ~(1 << 8)) {
         float angle;
         int hits = 0; bool hit;
         Vector3 offset;

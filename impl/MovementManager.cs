@@ -22,7 +22,7 @@ public class MovementManager {
     private const byte _wallSearchDistance = 4;
 
     // replace these with config options
-    private const bool _dumpState = true;
+    private const bool _dumpState = false;
     private const float _stepHeight = 0.5f;
     private const bool _looseFeel = true; // allow the player to hold W while moving quickly in the air and still airstrafe properly
 
@@ -34,7 +34,6 @@ public class MovementManager {
     public Vector3 TopSurface => CenterMass + new Vector3(0, Collider.height / 2f, 0);
     public Vector3 FloorExtents => new(Collider.radius, Collider.radius, Collider.radius);
     public Vector3 BodyExtents => new(Collider.radius, Collider.height / 2f, Collider.radius);
-    public int PlayerMask => ~(1 << 8);
     public float FloorCastDistance => Collider.height / 2f;
     public float Speed => _velocity.magnitude;
     public float XZSpeed => new Vector2(_velocity.x, _velocity.z).magnitude;
@@ -63,9 +62,9 @@ public class MovementManager {
     public void Apply(GTTODSauce mod, ac_CharacterController controller) {
         _mod = mod;
         Controller = controller;
+        Collider.radius = Controller.BodyVariables.ColliderRadius / ((Controller.CharacterGroundState != GroundState.Onwall) ? 1 : 2) * Controller.BodyVariables.SizeModifier;
         _cameraZ = new(Controller.CameraParent.localPosition.y, Controller.CameraParent.localPosition.y - 1f, 1);
         WallStuff.SetupTransforms(Controller.transform, Controller.CameraParent);
-        Collider.radius = Controller.BodyVariables.ColliderRadius / ((Controller.CharacterGroundState != GroundState.Onwall) ? 1 : 2) * Controller.BodyVariables.SizeModifier;
         ResizeCollider(Controller.BodyVariables.ColliderHeight * Controller.BodyVariables.SizeModifier);
         _prevY = RB.position.y;
         ConfigureEvents();
@@ -73,19 +72,17 @@ public class MovementManager {
     }
 
     public void Revert() {
-        WallStuff.TakedownTransforms(Controller.transform, Controller.CameraParent);
-        RB.mass = 1;
+        WallStuff?.TakedownTransforms(Controller.transform, Controller.CameraParent);
+        RB?.mass = 1;
         Grounded.Unsubscribe();
         Jumping.Unsubscribe();
         Sliding.Unsubscribe();
         Crouching.Unsubscribe();
         Dashing.Unsubscribe();
         Wallrunning.Unsubscribe();
-        _mod.Log("Reverted GTTODSauce MovementManager");
+        _mod?.Log("Reverted GTTODSauce MovementManager");
         _mod = null;
     }
-
-
 
     public void RefundDashes() {
         Controller.CurrentDashCount = Controller.DashCount;
@@ -163,7 +160,7 @@ public class MovementManager {
         Controller.YCameraRotation += deltaX;
 
         Vector3 localUp;
-        if(Swimming) localUp = new Vector3(_velocity.x * 0.001f, 1, _velocity.z * 0.001f).normalized;
+        if(Swimming) localUp = new Vector3(_velocity.x * 0.003f, 1, _velocity.z * 0.003f).normalized;
         else localUp = WallStuff.GetUpBasis(CenterMass, _wallSearchDistance, strength: 0.22f, overrideCondition: Crouching.Doing);
         Vector3 forward = Vector3.ProjectOnPlane(Quaternion.Euler(0, Controller.YCameraRotation, 0) * Vector3.forward, localUp).normalized;
         Quaternion basis = Quaternion.LookRotation(forward, localUp);
@@ -217,8 +214,8 @@ public class MovementManager {
         }
 
         FixupRigidbody();
-        InspectWalls();
         InspectGround();
+        InspectWalls();
 
         if(Dashing.Ticks >= 0 && Dashing.Expected) {
             if(EvaluateDash()) return;
@@ -251,7 +248,7 @@ public class MovementManager {
     /// </summary>
     private void InspectGround() {
         if((Wallrunning.Ticks < 0 || !Grounded && YSpeed > 0.1f)) return;
-        bool hit = Physics.BoxCast(CenterMass, FloorExtents, Vector3.down, out Controller.GroundCheck, Quaternion.identity, FloorCastDistance, ~(1 << 8));
+        bool hit = Physics.BoxCast(CenterMass, FloorExtents, Vector3.down, out Controller.GroundCheck, Quaternion.identity, FloorCastDistance, Controller.AvailableLayers);
         float distance = Mathf.Abs(RB.position.y - BottomSurface.y);
         if(!hit || Controller.GroundCheck.distance > distance || Vector3.Angle(Vector3.up, Controller.GroundCheck.normal) > _slopeAngle) {
             Grounded.SetDoing(false);
@@ -304,9 +301,9 @@ public class MovementManager {
         Vector3 displace = new(0, ((Collider.height / 2) - Collider.radius), 0);
 
         WallCandidate? candidate;
-        candidate = WallCandidate.OfIntersections(_mod, Collider, CenterMass, displace, look * Vector3.forward, Collider.radius * 1.2f);
+        candidate = WallCandidate.OfIntersections(_mod, Collider, CenterMass, displace, look * Vector3.forward, Collider.radius * 1.2f, Controller.AvailableLayers);
         if(candidate == null || !candidate.Value.IsRelevent(_velocity, _wallSearchDistance))
-            candidate = WallCandidate.OfTrajectory(CenterMass, displace, _velocity, _wishdir * 0.5f, look * Vector3.forward, _wishdir, Collider.radius * 2f, 4f);
+            candidate = WallCandidate.OfTrajectory(CenterMass, displace, _velocity, _wishdir * 0.5f, look * Vector3.forward, _wishdir, Collider.radius * 2f, 4f, Controller.AvailableLayers);
         // ^^ the trajectory calculation alone isn't enough to ensure that walls aren't skipped in edge cases. i don't know why 
         // the trajectory stuff sometimes just misses geometry, but it does. so for now, intersecting nearby walls are used to find very close contacts.
         if(candidate == null || !candidate.Value.IsRelevent(_velocity, _wallSearchDistance)
@@ -315,7 +312,6 @@ public class MovementManager {
             CancelWallrun();
             return;
         }
-
         WallStuff.Prime(candidate.Value, look);
         Wallrunning.SetTrying(true);
     }
@@ -413,12 +409,12 @@ public class MovementManager {
     /// </summary>
     private void EvaluateSlide() {
         Sliding.Tick();
-        _velocity = _velocity.ApplyAcceleration(_wishdirRotated, 30, 0.01f);
+        _velocity = _velocity.ApplyAcceleration(_wishdirRotated, 30, 1f);
         if(YSpeed > 0.5f)
             _velocity = _velocity.ApplyFrictionXZ(Sliding.Ticks * 0.07f);
         else if(YSpeed < -0.5f)
             _velocity = _velocity.ApplyFrictionXZ(0.01f);
-        else _velocity = _velocity.ApplyFrictionXZ(0.7f);
+        else _velocity = _velocity.ApplyFrictionXZ(0.85f);
         if(Sliding.Ticks < (_gracePeriod / 3f) && XZSpeed < 60)
             _velocity += (_velocity.normalized * 8f);
         if(!Crouching.Expected || Speed < 15f) {
@@ -449,7 +445,7 @@ public class MovementManager {
             } else _wishdirRotated = _wishdirRotated.normalized;
             bool hit = Physics.BoxCast(CenterMass - _wishdirRotated,
                 FloorExtents * 0.7f, _wishdirRotated, out Controller.DashCheck,
-                Quaternion.identity, _dashDistance, PlayerMask
+                Quaternion.identity, _dashDistance, ~(1 << 8)
             );
             if(hit) {
                 if(Controller.DashCheck.distance < Collider.radius * 4f) {
@@ -499,9 +495,8 @@ public class MovementManager {
     private bool EvaluateWallrun() {
         bool isOnWall = TraceHelpers.HorizontalFan(CenterMass, -WallStuff.AverageNormal,
             WallStuff.Position, out WallStuff.Position, out WallStuff.AverageNormal,
-            distance: Collider.radius * 6f
+            distance: Collider.radius * 6f, layerMask: ~(1 << 8)
         );
-
         if(Grounded || !isOnWall) {
             if(Wallrunning.Ticks > 1) {
                 RefundAirjump();
@@ -537,7 +532,7 @@ public class MovementManager {
 
         // wall discrimination and first tick
         float offset = Vector3.Distance(CenterMass, WallStuff.Position);
-        if(offset > Collider.radius * 3f) {
+        if(offset > Collider.radius * 6f) {
             RefundAirjump();
             RefundDashes();
             return CancelWallrun();
@@ -548,7 +543,6 @@ public class MovementManager {
             Grounded.ResetTicks();
             _velocity = Vector3.ProjectOnPlane(_velocity, WallStuff.AverageNormal);
             ApplyImpulse(new Vector3(0, 20, 0));
-
             if(XZSpeed < 60) _velocity += (_velocity.XZ().normalized * 8f);
             WallStuff.AttachPercent = 0;
         }
@@ -569,7 +563,7 @@ public class MovementManager {
             _velocity += kick;
             _velocity.y = 18;
             RefundAirjump();
-            RefundDashes(); ;
+            RefundDashes();
             return CancelWallrun(false);
         } else if(Jumping.Ticks < 0) Jumping.Tick();
 
@@ -594,14 +588,15 @@ public class MovementManager {
 
         Vector3 projectedVelocity = _velocity.ProjectAndPreserve(WallStuff.AverageNormal);
         WallStuff.AttachPercent = Mathf.Clamp(Wallrunning.Ticks / 256f, 0, 1);
+        projectedVelocity -= WallStuff.AverageNormal * 2;
         float speedPercent = Mathf.Clamp(XZSpeed, 0, 8) / 8;
         _velocity = projectedVelocity
             .ApplyAcceleration(wishdirWall.XZ(), 60, 1.4f)
             .ApplyGravity(30)
             .ApplyFrictionY(8f * (1 - WallStuff.AttachPercent) * speedPercent)
             .ApplyFrictionXZ(0.6f);
-
         Wallrunning.Tick();
+
         RB.velocity = _velocity;
 
         if(WallStuff.AttachPercent >= 1) {
@@ -629,20 +624,7 @@ public class MovementManager {
     /// Returns true if the character has enough room to stand above their head while crouching.
     /// </summary>
     private bool HasHeadroom() {
-        return !Physics.CheckBox(Controller.transform.position + new Vector3(0, Controller.BodyVariables.UncrouchHeight * 0.51f, 0), BodyExtents, Quaternion.identity, PlayerMask);
-    }
-
-    /// <summary>
-    /// Aims the wishdir towards the direction the player is facing 
-    /// only if the wishdir is zero. This is useful for movement 
-    /// mechanics (mostly dashing) that should default to the
-    /// forward direction if the player isn't providing any 
-    /// directional input.
-    /// </summary>
-    private void DefaultForward() {
-        if(_wishdir.magnitude > 0.4f) return;
-        _wishdir = new(0, 0, 1);
-        _wishdirRotated = Controller.transform.rotation * _wishdir;
+        return !Physics.CheckBox(Controller.transform.position + new Vector3(0, Controller.BodyVariables.UncrouchHeight * 0.51f, 0), BodyExtents, Quaternion.identity, Controller.AvailableLayers);
     }
 
     /// <summary>
@@ -653,9 +635,8 @@ public class MovementManager {
     private void PatchVanillaCC() {
         Controller.Crouching = Crouching.Doing;
         Controller.Walking = Grounded && _wishdir.magnitude > 0.1;
-        if(Grounded) {
-            Controller.CharacterGroundState = Sliding ? GroundState.Sliding : GroundState.SteadyGround;
-        } else {
+        if(Grounded) Controller.CharacterGroundState = Sliding ? GroundState.Sliding : GroundState.SteadyGround;
+        else {
             if(ApplySwimming()) return;
             if(Wallrunning) Controller.CharacterGroundState = GroundState.Climbing;
             else Controller.CharacterGroundState = GroundState.InAir;
@@ -762,7 +743,6 @@ public class MovementManager {
         Wallrunning.EntryTrigger += () => {
             WallStuff.Sounds?.Play();
             JumpMovementShake(6.5f);
-            Controller.PlayerBody.Recoil(new Vector3(0f, 0.15f, -0.1f), Vector3.zero, 8f, 18f);
             Vector3 corrected = WallStuff.Position;
             corrected.y = CenterMass.y + 0.5f;
             Transform obj = UnityEngine.Object.Instantiate(Controller.WallController.WallEffect, corrected, Quaternion.identity).transform;

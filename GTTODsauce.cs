@@ -12,7 +12,7 @@ public class GTTODSauce : BaseUnityPlugin {
     private static GTTODSauce? _modSingleton;
     private Harmony? _harmony;
     private MovementManager? _manager;
-    public Intention Applied = new(true);
+    public Intention Applied = new(false);
 
     private void OnEnable() {
         if(_modSingleton != null && _modSingleton != this) {
@@ -31,7 +31,9 @@ public class GTTODSauce : BaseUnityPlugin {
     private void OnDestroy() {
         _harmony?.UnpatchSelf();
         _harmony = null;
+        Applied.SetDoing(false);
         _manager?.Revert();
+        _manager?.Controller.ActivateCharacter();
         _manager = null;
         Logger.LogInfo($"Unloaded {MyPluginInfo.PLUGIN_NAME}");
         _modSingleton = null;
@@ -46,18 +48,26 @@ public class GTTODSauce : BaseUnityPlugin {
         if(!Applied) {
             _manager.Revert();
             controller.ActivateCharacter();
+
         } else {
             controller.ActivateCharacter();
             _manager.Apply(this, controller);
         }
     }
 
-    [HarmonyPatch(typeof(ac_CharacterController), "Start"), HarmonyPostfix]
-    public static void GTTODSauce_ac_CharacterController_Start_POST(ac_CharacterController __instance) {
-        if(_modSingleton == null || !_modSingleton.Applied) return;
-        if(!_modSingleton.Applied || _modSingleton._manager == null) return;
-        _modSingleton._manager = new();
-        _modSingleton._manager.Apply(_modSingleton, __instance);
+    [HarmonyPatch(typeof(ac_CharacterController), "FixedUpdate"), HarmonyPrefix]
+    public static bool GTTODSauce_ac_CharacterController_FixedUpdate(ac_CharacterController __instance) {
+        if(_modSingleton == null) return true;
+        if(_modSingleton.Applied.Ticks <= 0) _modSingleton.Applied.Tick();
+        if(Input.GetKey(KeyCode.F4) && _modSingleton.Applied.Ticks >= 0) {
+            _modSingleton.Applied.Tick(-60);
+            if(_modSingleton._manager == null) _modSingleton._manager = new();
+            _modSingleton.Toggle(__instance);
+            GameManager.GM.HUD.ObjectivePopUp($"{(_modSingleton.Applied ? "sauced" : "de-sauced")}", "");
+        }
+        if(!_modSingleton.Applied || _modSingleton._manager == null) return true;
+        _modSingleton._manager.FixedUpdate();
+        return false;
     }
 
     static void dumpColliderStats(CapsuleCollider collider, string clarify = "") {
@@ -75,49 +85,28 @@ public class GTTODSauce : BaseUnityPlugin {
 
     [HarmonyPatch(typeof(ac_CharacterController), "Update"), HarmonyPrefix]
     public static bool GTTODSauce_ac_CharacterController_Update(ac_CharacterController __instance) {
-        if(_modSingleton == null || !_modSingleton.Applied) return true;
-        if(_modSingleton._manager == null) {
-            _modSingleton._manager = new();
-            _modSingleton._manager.Apply(_modSingleton, __instance);
-        }
+        if(_modSingleton == null || !_modSingleton.Applied || _modSingleton._manager == null) return true;
         _modSingleton._manager.Update();
         return false;
     }
 
-    [HarmonyPatch(typeof(ac_CharacterController), "FixedUpdate"), HarmonyPrefix]
-    public static bool GTTODSauce_ac_CharacterController_FixedUpdate(ac_CharacterController __instance) {
-        if(_modSingleton == null) return true;
-        if(_modSingleton.Applied.Ticks <= 0) _modSingleton.Applied.Tick();
-        if(Input.GetKey(KeyCode.F4) && _modSingleton.Applied.Ticks >= 0) {
-            _modSingleton.Applied.Tick(-60);
-            _modSingleton.Toggle(__instance);
-            GameManager.GM.HUD.ObjectivePopUp($"{(_modSingleton.Applied ? "sauced" : "de-sauced")}", "");
-        }
-        if(!_modSingleton.Applied) return true;
-        if(_modSingleton._manager == null) {
-            _modSingleton._manager = new();
-            _modSingleton._manager.Apply(_modSingleton, __instance);
-        }
-        _modSingleton._manager.FixedUpdate();
-        return false;
-    }
+
 
     [HarmonyPatch(typeof(ac_CharacterController), "LateUpdate"), HarmonyPrefix]
     public static bool GTTODSauce_ac_CharacterController_LateUpdate(ac_CharacterController __instance) {
-        // the mod doesn't need this (FOR NOW)
-        return _modSingleton != null && !_modSingleton.Applied;
+        return !(_modSingleton != null && _modSingleton.Applied);
     }
 
     [HarmonyPatch(typeof(ac_CharacterController), "Swim", typeof(bool)), HarmonyPrefix]
     public static bool GTTODSauce_ac_CharacterController_Swim(ac_CharacterController __instance, bool SwimmingState) {
-        if(_modSingleton == null || !_modSingleton.Applied) return true;
+        if(_modSingleton == null || !_modSingleton.Applied || _modSingleton._manager == null) return true;
         _modSingleton._manager.Swimming = SwimmingState && __instance.Movement.CanSwim;
         return true;
     }
 
     [HarmonyPatch(typeof(LandCannon), "Launch"), HarmonyPrefix]
     public static bool GTTODSauce_LandCannon_Launch(LandCannon __instance) {
-        if(_modSingleton == null || !_modSingleton.Applied) return true;
+        if(_modSingleton == null || !_modSingleton.Applied || _modSingleton._manager == null) return true;
         _modSingleton._manager.EnsureAirtime();
         _modSingleton._manager.JumpMovementShake(10f);
         _modSingleton._manager.RefundAirjump();
@@ -125,8 +114,8 @@ public class GTTODSauce : BaseUnityPlugin {
         _modSingleton._manager.RefundWallruns(true);
         _modSingleton._manager.Grounded.SetTryingAndDoing(false);
         _modSingleton._manager.ApplyImpulse(
-            __instance.transform.up * __instance.UpForce +
-            __instance.transform.forward * __instance.ForwardForce,
+            __instance.transform.up * (__instance.UpForce * 0.78f) +
+            __instance.transform.forward * (__instance.ForwardForce * 2f),
             !__instance.KillMomentum, true
         );
         __instance.Audio.PlayLocalAudioRange();
@@ -136,7 +125,7 @@ public class GTTODSauce : BaseUnityPlugin {
 
     [HarmonyPatch(typeof(GTTOD_BalancePole), "LateUpdate"), HarmonyPostfix]
     public static void GTTODSauce_BalancePole_LateUpdate(GTTOD_BalancePole __instance) {
-        if(_modSingleton == null || !_modSingleton.Applied || !__instance.Launching) return;
+        if(_modSingleton == null || !_modSingleton.Applied || _modSingleton._manager == null || !__instance.Launching) return;
         _modSingleton?._manager?.RefundAirjump();
         _modSingleton?._manager?.RefundDashes();
     }
@@ -147,7 +136,7 @@ public class GTTODSauce : BaseUnityPlugin {
 
     [HarmonyPatch(typeof(GTTOD_PlayerBody), "Footstep"), HarmonyPrefix]
     public static bool GTTODSauce_GTTOD_PlayerBody_Footstep(GTTOD_PlayerBody __instance) {
-        if(_modSingleton == null || !_modSingleton.Applied) return true;
+        if(_modSingleton == null || !_modSingleton.Applied || _modSingleton._manager == null) return true;
         if(__instance.CharacterController.CharacterGroundState == ac_CharacterController.GroundState.InAir
             || (__instance.CharacterController.CharacterGroundState == ac_CharacterController.GroundState.Swimming
             || __instance.CharacterController.CharacterGroundState == ac_CharacterController.GroundState.Climbing
@@ -172,7 +161,7 @@ public class GTTODSauce : BaseUnityPlugin {
 
     [HarmonyPatch(typeof(PlayerEffects), "PlaySuddenStop"), HarmonyPrefix]
     public static bool GTTODSauce_GTTOD_PlayerEffects_PlaySuddenStop(PlayerEffects __instance) {
-        if(_modSingleton == null || !_modSingleton.Applied) return true;
+        if(_modSingleton == null || !_modSingleton.Applied || _modSingleton._manager == null) return true;
         __instance.SuddenStop.GetComponent<AudioRange>().PlayLocalAudioRange();
         __instance.SuddenStop.Play();
         return false;
@@ -184,7 +173,7 @@ public class GTTODSauce : BaseUnityPlugin {
 
     [HarmonyPatch(typeof(Rigidbody), "AddForce", [typeof(Vector3), typeof(ForceMode)]), HarmonyPrefix]
     public static bool GTTODSauce_Rigidbody_AddForce_A(Rigidbody __instance, Vector3 force, ForceMode mode) {
-        if(_modSingleton == null || !_modSingleton.Applied) return true;
+        if(_modSingleton == null || !_modSingleton.Applied || _modSingleton._manager == null) return true;
         if(!__instance.Equals(_modSingleton?._manager?.RB)) return true;
         _modSingleton._manager.ApplyImpulse(force * 0.001f, true, false);
         return false;
@@ -207,7 +196,7 @@ public class GTTODSauce : BaseUnityPlugin {
 
     [HarmonyPatch(typeof(Rigidbody), "AddExplosionForce", [typeof(float), typeof(Vector3), typeof(float), typeof(float), typeof(ForceMode)]), HarmonyPrefix]
     public static bool GTTODSauce_Rigidbody_AddExplosionForce_A(Rigidbody __instance, float explosionForce, Vector3 explosionPosition, float explosionRadius, float upwardsModifier, ForceMode mode) {
-        if(_modSingleton == null || !_modSingleton.Applied) return true;
+        if(_modSingleton == null || !_modSingleton.Applied || _modSingleton._manager == null) return true;
         if(!__instance.Equals(_modSingleton?._manager?.RB)) return true;
         MovementManager body = _modSingleton._manager;
         if(body == null) return false;
