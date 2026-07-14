@@ -195,7 +195,11 @@ public class MovementManager {
     }
 
     public void FixedUpdate() {
-        if(ShouldPauseUpdates()) return;
+        if(ShouldPauseUpdates()) {
+            _velocity.ApplyFrictionXZ(0.5f);
+            _velocity = _velocity.ApplyGravity();
+            return;
+        }
         /// ingesting the velocity from the previous rigidbody update cuz the 
         /// rigidbody is dynamic ("booooo dynamic rigidbody" SHUT UP!!!)
         if(!RB.isKinematic) _velocity = RB.velocity;

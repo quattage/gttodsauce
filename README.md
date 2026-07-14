@@ -37,13 +37,9 @@ The mod can be toggled in-game by pressing F4. (<-- doesn't actually work yet, b
 
 ## known issues
 - Wallrun camera rolling can get shaky on uneven terrain
-- Edge cases exist where you can get completely stuck in place on walls (????? coco how ??????)
 - Spamming the mod toggle button while crouching sinks the player's camera into the ground forever until the game is restarted
-- There are some particle effects (especially enemy gibbs) that the player can STILL stand on/collide with, i have no idea why
 - The collider's center is fucked up, which causes:
    - doorguy to grow taller when the mod is applied
    - the sliding particle effects are played right in your face
    - doorguy can't walk when the mod is disabled
-- when you stop sliding a small puff of smoke spawns at world origin (0, 0, 0) for some reason idk man
-- opening the chat while midair allows the player to fucking fly
 - standing up when there's a ceiling above your head while crouching lets you just phase through whatever's above you
