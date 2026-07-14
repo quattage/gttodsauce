@@ -5,6 +5,8 @@ that replaces all stock character controller code with a custom, unified impleme
 
 ## A smoother GTTOD character controller
 
+!! The mod must be manually enabled in-game by pressing F4 !!
+
 Creating a discrete kinematic character controller in a game engine that provides no built-in tools 
 to do so can be rather difficult. Unity's default character controller sucks ass big mode, so you're 
 either forced to use a dynamic rigidbody or to roll your own collision detection from scratch, and 
@@ -17,8 +19,6 @@ the effects of rigidbody friction and mass.
 I've completely bypassed all stock movement code belonging to doorguy and replaced it with my own
 dynamic rigidbody-based kinematic controller. If you want to look around at the code, the main
 loop is in impl/MovementManger.cs (check out FixedUpdate()).
-
-The mod can be toggled in-game by pressing F4. (<-- doesn't actually work yet, but you can use this to verify that the mod is loaded)
 
 ## what it do:
 - Replaces rigidbody-based velocity and friction calculations with custom kinematic code
