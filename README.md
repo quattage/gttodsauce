@@ -23,7 +23,7 @@ loop is in impl/MovementManger.cs (check out FixedUpdate()).
 ## what it do:
 - Replaces rigidbody-based velocity and friction calculations with custom kinematic code
 - Emulates sourcelike airstrafing and bhopping
-- Provides better wall detection that's much more predictable
+- Provides better wall detection that's much more predictable (mostly)
 - All code runs in physics tick, so no more frame dependent behaviours
 - Restores wallkicks and introduces new wall dash behaviour
 - Ties the modded code into vanilla stuff like landcannons and monkey bars so that they behave predictibly

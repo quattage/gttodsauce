@@ -111,7 +111,7 @@ public class GTTODSauce : BaseUnityPlugin {
         _modSingleton._manager.JumpMovementShake(10f);
         _modSingleton._manager.RefundAirjump();
         _modSingleton._manager.RefundDashes();
-        _modSingleton._manager.RefundWallruns(true);
+        _modSingleton._manager.WallStuff.Reset(true);
         _modSingleton._manager.Grounded.SetTryingAndDoing(false);
         _modSingleton._manager.ApplyImpulse(
             __instance.transform.up * (__instance.UpForce * 0.78f) +

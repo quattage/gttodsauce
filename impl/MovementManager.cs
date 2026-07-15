@@ -18,12 +18,11 @@ public class MovementManager {
     private const float _slopeAngle = 65f;
     private const float _wallAngle = 42f;
     private const float _dashDistance = 15f;
-    private const byte _gracePeriod = 15;
-    private const byte _wallSearchDistance = 4;
+    private const byte _gracePeriod = 10;
+    private const byte _wallSearchDistance = 6;
 
     // replace these with config options
     private const bool _dumpState = false;
-    private const float _stepHeight = 0.5f;
     private const bool _looseFeel = true; // allow the player to hold W while moving quickly in the air and still airstrafe properly
 
     // helpers
@@ -32,7 +31,7 @@ public class MovementManager {
     public Vector3 CenterMass => Collider == null ? Vector3.zero : (Collider.transform.position + Collider.center);
     public Vector3 BottomSurface => CenterMass + new Vector3(0, -Collider.height / 1.9f, 0);
     public Vector3 TopSurface => CenterMass + new Vector3(0, Collider.height / 2f, 0);
-    public Vector3 FloorExtents => new(Collider.radius, Collider.radius, Collider.radius);
+    public Vector3 FloorExtents => new(Collider.radius * 0.7f, Collider.radius, Collider.radius * 0.7f);
     public Vector3 BodyExtents => new(Collider.radius, Collider.height / 2f, Collider.radius);
     public float FloorCastDistance => Collider.height / 2f;
     public float Speed => _velocity.magnitude;
@@ -94,10 +93,6 @@ public class MovementManager {
 
     public void RefundSliding() {
         if(Sliding.Ticks > 0) Sliding.ResetTicks();
-    }
-
-    public void RefundWallruns(bool forgiving) {
-        WallStuff.Reset(forgiving);
     }
 
     public void RefundWallkicks() {
@@ -175,7 +170,7 @@ public class MovementManager {
             desired += WallStuff.AverageNormal * 2f;
             desired.Normalize();
             float wallLookTowards = Vector3.Dot(targetForward, -WallStuff.AverageNormal);
-            float weight = Mathf.InverseLerp(0f, 1f, Mathf.Clamp01(wallLookTowards));
+            float weight = Mathf.InverseLerp(-0.01f, 1.01f, Mathf.Clamp01(wallLookTowards));
             Vector3 nudged = Vector3.Slerp(targetForward, desired, weight);
             yawNudge = Vector3.SignedAngle(targetForward, nudged, localUp);
         }
@@ -237,7 +232,6 @@ public class MovementManager {
         _prevY = RB.position.y;
         DumpState();
         Jumping.SetTrying(false);
-        Crouching.SetTrying(false);
     }
 
 
@@ -267,7 +261,7 @@ public class MovementManager {
             RefundDashes();
             RefundAirjump();
             RefundSliding();
-            RefundWallruns(true);
+            WallStuff.Reset(true);
             RefundWallkicks();
         }
         Grounded.SetDoing(true);
@@ -290,13 +284,14 @@ public class MovementManager {
     /// </summary>
     private void InspectWalls() {
         if(Wallrunning.Doing) return;
-        if(Grounded || Jumping.Ticks < -_gracePeriod * 2) {
+        if(Grounded) {
             CancelWallrun();
+            Wallrunning.SetTrying(false);
             return;
         }
 
-        float intent = (_wishdir.magnitude * 2) + _velocity.XZ().magnitude;
-        if(intent < 0.8) {
+        float intent = Mathf.Clamp01((_wishdir.magnitude * 2) + _velocity.XZ().magnitude);
+        if(intent < 0.5) {
             CancelWallrun();
             return;
         }
@@ -305,11 +300,7 @@ public class MovementManager {
         Vector3 displace = new(0, ((Collider.height / 2) - Collider.radius), 0);
 
         WallCandidate? candidate;
-        candidate = WallCandidate.OfIntersections(_mod, Collider, CenterMass, displace, look * Vector3.forward, Collider.radius * 1.2f, Controller.AvailableLayers);
-        if(candidate == null || !candidate.Value.IsRelevent(_velocity, _wallSearchDistance))
-            candidate = WallCandidate.OfTrajectory(CenterMass, displace, _velocity, _wishdir * 0.5f, look * Vector3.forward, _wishdir, Collider.radius * 2f, 4f, Controller.AvailableLayers);
-        // ^^ the trajectory calculation alone isn't enough to ensure that walls aren't skipped in edge cases. i don't know why 
-        // the trajectory stuff sometimes just misses geometry, but it does. so for now, intersecting nearby walls are used to find very close contacts.
+        candidate = WallCandidate.OfTrajectory(_mod, Collider, CenterMass, displace, _velocity, _wishdir * 0.5f, look * Vector3.forward, _wishdir, Collider.radius * 4f, 4f, Controller.AvailableLayers);
         if(candidate == null || !candidate.Value.IsRelevent(_velocity, _wallSearchDistance)
             || !candidate.Value.IsVertical(_wallAngle)
             || !candidate.Value.IsInView() || !candidate.Value.IsOpposingPrevious(WallStuff)) {
@@ -458,7 +449,7 @@ public class MovementManager {
                     Dashing.Tick(-_gracePeriod);
                     return false;
                 }
-                _dashEndpoint = Vector3.Lerp(CenterMass, Controller.DashCheck.point, 0.87f);
+                _dashEndpoint = Vector3.Lerp(CenterMass, Controller.DashCheck.point, 0.97f);
             } else _dashEndpoint = RB.position + (_wishdirRotated * _dashDistance);
             if(_wishdir.z >= -0.001) {
                 float mag = _velocity.magnitude;
@@ -466,7 +457,7 @@ public class MovementManager {
                 if(XZSpeed < 60) _velocity += (_velocity.normalized * 8f);
             } else _velocity = new Vector3(0, 0, 0);
             RefundAirjump();
-            RefundWallruns(true);
+            WallStuff.Reset(true);
             Controller.CurrentDashCount--;
             Dashing.SetDoing();
         }
@@ -497,9 +488,9 @@ public class MovementManager {
     /// </summary>
     /// <returns></returns>
     private bool EvaluateWallrun() {
-        bool isOnWall = TraceHelpers.HorizontalFan(CenterMass, -WallStuff.AverageNormal,
+        bool isOnWall = TraceHelpers.HorizontalFan(CenterMass, -WallStuff.AverageNormal.normalized.XZ(),
             WallStuff.Position, out WallStuff.Position, out WallStuff.AverageNormal,
-            distance: Collider.radius * 6f, layerMask: ~(1 << 8)
+            distance: Collider.radius * 6f, layerMask: Controller.AvailableLayers
         );
         if(Grounded || !isOnWall) {
             if(Wallrunning.Ticks > 1) {
@@ -519,13 +510,13 @@ public class MovementManager {
                     _velocity.y = Mathf.Max(25, _velocity.y);
                     RefundAirjump();
                     RefundDashes();
-                    RefundWallruns(true);
+                    WallStuff.Reset(true);
                     _wallKicks--;
                     return CancelWallrun(false);
                 }
             } else {
                 EnsureAirtime();
-                RefundWallruns(false);
+                WallStuff.Reset(false);
                 RefundDashes();
                 RefundAirjump();
                 Wallrunning.Tick(-_gracePeriod);
@@ -585,7 +576,7 @@ public class MovementManager {
             EnsureAirtime();
             RefundAirjump();
             RefundDashes();
-            RefundWallruns(true);
+            WallStuff.Reset(true);
             Controller.CurrentDashCount--;
             return false;
         }
@@ -597,7 +588,7 @@ public class MovementManager {
         _velocity = projectedVelocity
             .ApplyAcceleration(wishdirWall.XZ(), 60, 1.4f)
             .ApplyGravity(30)
-            .ApplyFrictionY(8f * (1 - WallStuff.AttachPercent) * speedPercent)
+            .ApplyFrictionY(6f * (1 - WallStuff.AttachPercent) * speedPercent)
             .ApplyFrictionXZ(0.6f);
         Wallrunning.Tick();
 
@@ -814,7 +805,7 @@ public class MovementManager {
         _mod.Log("Crouching: " + Crouching);
         _mod.Log("Sliding: " + Sliding);
         _mod.Log("Dashing: " + Dashing + " (" + Controller.CurrentDashCount + "/" + Controller.DashCount + ")");
-        _mod.Log("Wallrunning: " + Wallrunning + ", (" + (!Wallrunning.Expected ? "---" : (WallStuff.IsLeft ? "<--" : "-->")) + "), (:: " + WallStuff.AverageNormal + ")");
+        _mod.Log("Wallrunning: " + Wallrunning + ", (" + (!Wallrunning.Expected ? "---" : (WallStuff.IsLeft ? "<--" : "-->")) + "), (:: " + WallStuff.AverageNormal + "), (" + WallStuff.PreviousNormal + ")");
     }
 #pragma warning restore CS0162 
 }

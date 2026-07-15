@@ -65,45 +65,20 @@ public class TraceHelpers {
             );
         }
 
-        public static WallCandidate OfTrajectory(in Vector3 pos, in Vector3 disp, in Vector3 vel, in Vector3 mod, in Vector3 wishdir, in Vector3 forwardLook, in float rad, in float traceDistance = 20f, in int mask = ~(1 << 8)) {
-            RaycastHit? hit = TraceHelpers.Trajectory(pos, disp, vel, mod, rad, mask, traceDistance, Time.fixedDeltaTime * 3);
-            if(hit == null) return new(null, pos, wishdir, forwardLook);
-            return new(hit.Value, pos, wishdir, forwardLook);
-        }
-
-        public static WallCandidate? OfIntersections(GTTODSauce _mod, in Collider rbc, in Vector3 pos, in Vector3 disp, Vector3 forwardLook, in float rad, in int mask = ~(1 << 8)) {
+        public static WallCandidate OfTrajectory(GTTODSauce sauce, Collider rbc, in Vector3 pos, in Vector3 disp, in Vector3 vel, in Vector3 mod, in Vector3 wishdir, in Vector3 forwardLook, in float rad, in float traceDistance = 20f, in int mask = ~(1 << 8)) {
             Collider[] colls = Physics.OverlapCapsule(pos - disp, pos + disp, rad, mask);
-            if(colls.Length <= 0) return null;
-            if(colls.Length == 1) {
+            WallCandidate[] candidates = new WallCandidate[6];
+            for(int x = 0; x < colls.Length; x++) {
+                if(x > 4) break;
                 Collider tgt = colls[0];
                 Physics.ComputePenetration(rbc, pos, rbc.gameObject.transform.rotation, tgt, tgt.gameObject.transform.position, tgt.gameObject.transform.rotation, out Vector3 normal, out float distance);
-                return new WallCandidate(normal, pos + normal, forwardLook, distance);
+                candidates[x] = new WallCandidate(normal, pos + normal, forwardLook, distance);
             }
-            Vector3 outputNormal = Vector3.zero;
-            float workingDistance = 9999;
-            for(int x = 0; x < colls.Length; x++) {
-                Collider tgt = colls[x];
-                Physics.ComputePenetration(rbc, pos, rbc.gameObject.transform.rotation, tgt, tgt.gameObject.transform.position, tgt.gameObject.transform.rotation, out Vector3 normal, out float distance);
-                if(distance < workingDistance) {
-                    workingDistance = distance;
-                    outputNormal = normal;
-                }
-            }
-            return new WallCandidate(outputNormal, pos + outputNormal, forwardLook, workingDistance);
-        }
+            RaycastHit? hit = TraceHelpers.Trajectory(pos, disp, vel, mod, rad, mask, traceDistance, Time.fixedDeltaTime * 3);
+            candidates[5] = new(hit, pos, wishdir, forwardLook);
 
-        /// <summary>
-        /// Skims through a list of WallCandidate objects to find
-        /// the one that's the most wall-like. Prioritized closer
-        /// distances and measures how perpendicular the wall is
-        /// to the current moving direction.
-        /// </summary>
-        /// <param name="candidates"></param>
-        /// <returns></returns>
-        public static WallCandidate FindBest(in WallCandidate[] candidates) {
-            if(candidates.Length <= 0) return new();
             int bestIdx = 0;
-            for(int x = 1; x < candidates.Length; x++) {
+            for(int x = 0; x < candidates.Length; x++) {
                 WallCandidate current = candidates[x];
                 if(!current.Hit) continue;
                 WallCandidate best = candidates[bestIdx];
@@ -166,8 +141,8 @@ public class TraceHelpers {
             float distance = Vector3.Distance(wall.Position, this.Trace.point);
             if(distance > 20) return true;
             if(Trace.normal.magnitude < 0.1 || wall.PreviousNormal.magnitude < 0.1) return true;
-            float fac = Vector3.Dot(wall.PreviousWallTouch.XZ(), Trace.normal.XZ());
-            return fac < 0.8;
+            float fac = Vector3.Dot(wall.PreviousNormal.XZ(), Trace.normal.XZ());
+            return fac < 0.4;
         }
     }
 

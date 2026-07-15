@@ -17,8 +17,6 @@ public class WallContainer {
     public Vector3 PreviousNormal = Vector3.zero;
     public float AttachPercent = 1;
 
-    public Vector3 PreviousWallTouch = Vector3.zero;
-
     private bool _left;
 
     public bool IsLeft {
@@ -54,9 +52,6 @@ public class WallContainer {
 
     public void Prime(WallCandidate candidiate, Quaternion look) {
         AverageNormal = candidiate.NormXZ;
-        PreviousWallTouch = AverageNormal;
-        if(PreviousNormal.magnitude < 0.1f)
-            PreviousNormal = AverageNormal;
         Position = candidiate.Trace.point;
         float tanDiff = Vector3.Dot(AverageNormal, look * Vector3.right);
         IsLeft = tanDiff > 0;
@@ -68,10 +63,11 @@ public class WallContainer {
     }
 
     public void Reset(bool resetTouch = false) {
-        if(resetTouch) PreviousWallTouch = Vector3.zero;
+        PreviousNormal = resetTouch ? Vector3.zero : AverageNormal;
         AverageNormal = Vector3.zero;
         AttachPercent = 1;
     }
+
 
     private float GetEasedAttach() {
         return AttachPercent <= 0 ? 0 : AttachPercent >= 1 ? 1 : 1 - Mathf.Pow(2, 10 * AttachPercent - 10);
